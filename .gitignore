@@ -31,9 +31,9 @@ coverage
 npm-debug.log*
 pnpm-debug.log*
 
-# Database
-*.mmdb
-data/
+# Database (keep GeoLite2 database committed)
+data/*.mmdb
+!data/GeoLite2-City.mmdb
 
 # Docker
 docker-compose.override.yml
