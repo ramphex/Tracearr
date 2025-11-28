@@ -4,7 +4,7 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -17,11 +17,11 @@ const redisPlugin: FastifyPluginAsync = async (app) => {
 
   const redis = new Redis(redisUrl, {
     maxRetriesPerRequest: 3,
-    retryStrategy(times) {
+    retryStrategy(times: number) {
       const delay = Math.min(times * 50, 2000);
       return delay;
     },
-    reconnectOnError(err) {
+    reconnectOnError(err: Error) {
       const targetError = 'READONLY';
       if (err.message.includes(targetError)) {
         return true;
@@ -34,7 +34,7 @@ const redisPlugin: FastifyPluginAsync = async (app) => {
     app.log.info('Redis connected');
   });
 
-  redis.on('error', (err) => {
+  redis.on('error', (err: Error) => {
     app.log.error({ err }, 'Redis error');
   });
 
