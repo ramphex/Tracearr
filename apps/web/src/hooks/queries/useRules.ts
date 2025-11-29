@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Rule, CreateRuleInput, UpdateRuleInput } from '@tracearr/shared';
+import type { Rule } from '@tracearr/shared';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,7 +19,7 @@ export function useCreateRule() {
     mutationFn: (data: Omit<Rule, 'id' | 'createdAt' | 'updatedAt'>) =>
       api.rules.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
       toast({
         title: 'Rule Created',
         description: 'The rule has been created successfully.',
@@ -43,7 +43,7 @@ export function useUpdateRule() {
     mutationFn: ({ id, data }: { id: string; data: Partial<Rule> }) =>
       api.rules.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
       toast({
         title: 'Rule Updated',
         description: 'The rule has been updated successfully.',
@@ -66,7 +66,7 @@ export function useDeleteRule() {
   return useMutation({
     mutationFn: (id: string) => api.rules.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
       toast({
         title: 'Rule Deleted',
         description: 'The rule has been deleted successfully.',
@@ -112,7 +112,7 @@ export function useToggleRule() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['rules', 'list'] });
     },
   });
 }

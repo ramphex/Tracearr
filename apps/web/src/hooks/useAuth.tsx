@@ -3,6 +3,7 @@ import {
   useContext,
   useCallback,
   useMemo,
+  useEffect,
   type ReactNode,
 } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -14,7 +15,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   logout: () => Promise<void>;
-  refetch: () => void;
+  refetch: () => Promise<unknown>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -97,10 +98,12 @@ export function useAuth(): AuthContextValue {
 export function useRequireAuth(): AuthContextValue {
   const auth = useAuth();
 
-  if (!auth.isLoading && !auth.isAuthenticated) {
-    // Redirect to login if not authenticated
-    window.location.href = '/login';
-  }
+  useEffect(() => {
+    if (!auth.isLoading && !auth.isAuthenticated) {
+      // Redirect to login if not authenticated
+      window.location.href = '/login';
+    }
+  }, [auth.isLoading, auth.isAuthenticated]);
 
   return auth;
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -101,7 +101,7 @@ function RuleParamsForm({
             type="number"
             value={(params as { maxSpeedKmh: number }).maxSpeedKmh}
             onChange={(e) =>
-              onChange({ ...params, maxSpeedKmh: parseInt(e.target.value) || 0 })
+              { onChange({ ...params, maxSpeedKmh: parseInt(e.target.value) || 0 }); }
             }
           />
           <p className="text-xs text-muted-foreground">
@@ -118,7 +118,7 @@ function RuleParamsForm({
             type="number"
             value={(params as { minDistanceKm: number }).minDistanceKm}
             onChange={(e) =>
-              onChange({ ...params, minDistanceKm: parseInt(e.target.value) || 0 })
+              { onChange({ ...params, minDistanceKm: parseInt(e.target.value) || 0 }); }
             }
           />
           <p className="text-xs text-muted-foreground">
@@ -136,7 +136,7 @@ function RuleParamsForm({
               type="number"
               value={(params as { maxIps: number; windowHours: number }).maxIps}
               onChange={(e) =>
-                onChange({ ...params, maxIps: parseInt(e.target.value) || 0 })
+                { onChange({ ...params, maxIps: parseInt(e.target.value) || 0 }); }
               }
             />
           </div>
@@ -147,7 +147,7 @@ function RuleParamsForm({
               type="number"
               value={(params as { maxIps: number; windowHours: number }).windowHours}
               onChange={(e) =>
-                onChange({ ...params, windowHours: parseInt(e.target.value) || 0 })
+                { onChange({ ...params, windowHours: parseInt(e.target.value) || 0 }); }
               }
             />
           </div>
@@ -165,7 +165,7 @@ function RuleParamsForm({
             type="number"
             value={(params as { maxStreams: number }).maxStreams}
             onChange={(e) =>
-              onChange({ ...params, maxStreams: parseInt(e.target.value) || 0 })
+              { onChange({ ...params, maxStreams: parseInt(e.target.value) || 0 }); }
             }
           />
           <p className="text-xs text-muted-foreground">
@@ -181,13 +181,13 @@ function RuleParamsForm({
             id="blockedCountries"
             value={(params as { blockedCountries: string[] }).blockedCountries.join(', ')}
             onChange={(e) =>
-              onChange({
+              { onChange({
                 ...params,
                 blockedCountries: e.target.value
                   .split(',')
                   .map((c) => c.trim().toUpperCase())
                   .filter(Boolean),
-              })
+              }); }
             }
             placeholder="US, CN, RU"
           />
@@ -240,7 +240,7 @@ function RuleDialog({
         <Input
           id="name"
           value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          onChange={(e) => { setFormData({ ...formData, name: e.target.value }); }}
           placeholder="e.g., Concurrent Stream Limit"
           required
         />
@@ -250,7 +250,7 @@ function RuleDialog({
         <Label htmlFor="type">Rule Type</Label>
         <Select
           value={formData.type}
-          onValueChange={(value) => handleTypeChange(value as RuleType)}
+          onValueChange={(value) => { handleTypeChange(value as RuleType); }}
           disabled={isEditing}
         >
           <SelectTrigger>
@@ -275,7 +275,7 @@ function RuleDialog({
       <RuleParamsForm
         type={formData.type}
         params={formData.params}
-        onChange={(params) => setFormData({ ...formData, params })}
+        onChange={(params) => { setFormData({ ...formData, params }); }}
       />
 
       <div className="flex items-center justify-between">
@@ -283,7 +283,7 @@ function RuleDialog({
         <Switch
           id="isActive"
           checked={formData.isActive}
-          onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
+          onCheckedChange={(checked) => { setFormData({ ...formData, isActive: checked }); }}
         />
       </div>
 
@@ -422,7 +422,7 @@ export function Rules() {
 
   const handleDelete = (id: string) => {
     deleteRule.mutate(id, {
-      onSuccess: () => setDeleteConfirmId(null),
+      onSuccess: () => { setDeleteConfirmId(null); },
     });
   };
 
@@ -468,7 +468,7 @@ export function Rules() {
             <RuleDialog
               rule={editingRule}
               onSave={editingRule ? handleUpdate : handleCreate}
-              onClose={() => setIsDialogOpen(false)}
+              onClose={() => { setIsDialogOpen(false); }}
               isLoading={createRule.isPending || updateRule.isPending}
             />
           </DialogContent>
@@ -513,16 +513,16 @@ export function Rules() {
             <RuleCard
               key={rule.id}
               rule={rule}
-              onEdit={() => openEditDialog(rule)}
-              onDelete={() => setDeleteConfirmId(rule.id)}
-              onToggle={() => handleToggle(rule)}
+              onEdit={() => { openEditDialog(rule); }}
+              onDelete={() => { setDeleteConfirmId(rule.id); }}
+              onToggle={() => { handleToggle(rule); }}
             />
           ))}
         </div>
       )}
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
+      <Dialog open={!!deleteConfirmId} onOpenChange={() => { setDeleteConfirmId(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Rule</DialogTitle>
@@ -531,7 +531,7 @@ export function Rules() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+            <Button variant="outline" onClick={() => { setDeleteConfirmId(null); }}>
               Cancel
             </Button>
             <Button

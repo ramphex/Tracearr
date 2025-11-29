@@ -82,8 +82,8 @@ export function StreamMap({
   height = 300,
 }: StreamMapProps) {
   const hasData =
-    (sessions && sessions.some((s) => s.geoLat && s.geoLon)) ||
-    (locations && locations.some((l) => l.lat && l.lon));
+    (sessions?.some((s) => s.geoLat && s.geoLon)) ||
+    (locations?.some((l) => l.lat && l.lon));
 
   return (
     <div className={cn('relative overflow-hidden rounded-lg', className)} style={{ height }}>

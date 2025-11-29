@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Violation, ViolationWithDetails, PaginatedResponse, ViolationSeverity } from '@tracearr/shared';
+import type { ViolationWithDetails, PaginatedResponse, ViolationSeverity } from '@tracearr/shared';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 
@@ -58,13 +58,13 @@ export function useAcknowledgeViolation() {
       }
       toast({
         title: 'Failed to Acknowledge',
-        description: (err as Error).message,
+        description: (err).message,
         variant: 'destructive',
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['violations'] });
-      queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['violations'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
       toast({
         title: 'Violation Acknowledged',
         description: 'The violation has been marked as acknowledged.',
@@ -80,8 +80,8 @@ export function useDismissViolation() {
   return useMutation({
     mutationFn: (id: string) => api.violations.dismiss(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['violations'] });
-      queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['violations'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
       toast({
         title: 'Violation Dismissed',
         description: 'The violation has been dismissed.',

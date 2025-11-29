@@ -140,7 +140,7 @@ function GeneralSettings() {
               max={300}
               className="w-20"
               defaultValue={intervalSeconds}
-              onBlur={(e) => handleIntervalChange(parseInt(e.target.value, 10) || 15)}
+              onBlur={(e) => { handleIntervalChange(parseInt(e.target.value, 10) || 15); }}
               disabled={!settings?.pollerEnabled}
             />
             <span className="text-sm text-muted-foreground">sec</span>
@@ -172,7 +172,7 @@ function ServerSettings() {
   const handleDelete = () => {
     if (deleteId) {
       deleteServer.mutate(deleteId, {
-        onSuccess: () => setDeleteId(null),
+        onSuccess: () => { setDeleteId(null); },
       });
     }
   };
@@ -226,8 +226,8 @@ function ServerSettings() {
                 <ServerCard
                   key={server.id}
                   server={server}
-                  onSync={() => handleSync(server.id)}
-                  onDelete={() => setDeleteId(server.id)}
+                  onSync={() => { handleSync(server.id); }}
+                  onDelete={() => { setDeleteId(server.id); }}
                   isSyncing={syncServer.isPending}
                 />
               ))}
@@ -237,7 +237,7 @@ function ServerSettings() {
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+      <Dialog open={!!deleteId} onOpenChange={() => { setDeleteId(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Remove Server</DialogTitle>
@@ -247,7 +247,7 @@ function ServerSettings() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteId(null)}>
+            <Button variant="outline" onClick={() => { setDeleteId(null); }}>
               Cancel
             </Button>
             <Button
@@ -374,7 +374,7 @@ function NotificationSettings() {
             </div>
             <Switch
               checked={settings?.notifyOnViolation ?? true}
-              onCheckedChange={(checked) => handleToggle('notifyOnViolation', checked)}
+              onCheckedChange={(checked) => { handleToggle('notifyOnViolation', checked); }}
             />
           </div>
 
@@ -387,7 +387,7 @@ function NotificationSettings() {
             </div>
             <Switch
               checked={settings?.notifyOnSessionStart ?? false}
-              onCheckedChange={(checked) => handleToggle('notifyOnSessionStart', checked)}
+              onCheckedChange={(checked) => { handleToggle('notifyOnSessionStart', checked); }}
             />
           </div>
 
@@ -400,7 +400,7 @@ function NotificationSettings() {
             </div>
             <Switch
               checked={settings?.notifyOnSessionStop ?? false}
-              onCheckedChange={(checked) => handleToggle('notifyOnSessionStop', checked)}
+              onCheckedChange={(checked) => { handleToggle('notifyOnSessionStop', checked); }}
             />
           </div>
 
@@ -413,7 +413,7 @@ function NotificationSettings() {
             </div>
             <Switch
               checked={settings?.notifyOnServerDown ?? true}
-              onCheckedChange={(checked) => handleToggle('notifyOnServerDown', checked)}
+              onCheckedChange={(checked) => { handleToggle('notifyOnServerDown', checked); }}
             />
           </div>
         </CardContent>
@@ -433,7 +433,7 @@ function NotificationSettings() {
               id="discordWebhook"
               placeholder="https://discord.com/api/webhooks/..."
               defaultValue={settings?.discordWebhookUrl ?? ''}
-              onBlur={(e) => handleUrlChange('discordWebhookUrl', e.target.value)}
+              onBlur={(e) => { handleUrlChange('discordWebhookUrl', e.target.value); }}
             />
             <p className="text-xs text-muted-foreground">
               Paste your Discord webhook URL to receive notifications in a Discord channel
@@ -446,7 +446,7 @@ function NotificationSettings() {
               id="customWebhook"
               placeholder="https://your-service.com/webhook"
               defaultValue={settings?.customWebhookUrl ?? ''}
-              onBlur={(e) => handleUrlChange('customWebhookUrl', e.target.value)}
+              onBlur={(e) => { handleUrlChange('customWebhookUrl', e.target.value); }}
             />
             <p className="text-xs text-muted-foreground">
               Send notifications to a custom endpoint via POST request
@@ -500,7 +500,7 @@ function AccessSettings() {
           </div>
           <Switch
             checked={settings?.allowGuestAccess ?? false}
-            onCheckedChange={(checked) => handleToggle('allowGuestAccess', checked)}
+            onCheckedChange={(checked) => { handleToggle('allowGuestAccess', checked); }}
           />
         </div>
         <div className="rounded-lg bg-muted/50 p-4">
@@ -669,7 +669,7 @@ function ImportSettings() {
                 id="tautulliUrl"
                 placeholder="http://localhost:8181"
                 value={tautulliUrl}
-                onChange={(e) => setTautulliUrl(e.target.value)}
+                onChange={(e) => { setTautulliUrl(e.target.value); }}
               />
               <p className="text-xs text-muted-foreground">
                 The URL where Tautulli is accessible (include port if needed)
@@ -683,7 +683,7 @@ function ImportSettings() {
                 type="password"
                 placeholder="Your Tautulli API key"
                 value={tautulliApiKey}
-                onChange={(e) => setTautulliApiKey(e.target.value)}
+                onChange={(e) => { setTautulliApiKey(e.target.value); }}
               />
               <p className="text-xs text-muted-foreground">
                 Find this in Tautulli Settings → Web Interface → API Key

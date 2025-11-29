@@ -120,7 +120,7 @@ export function Users() {
               page={page}
               onPageChange={setPage}
               isLoading={isLoading}
-              onRowClick={(user) => navigate(`/users/${user.id}`)}
+              onRowClick={(user) => { navigate(`/users/${user.id}`); }}
               emptyMessage="No users found."
             />
           )}

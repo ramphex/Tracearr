@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Server } from '@tracearr/shared';
+import '@tracearr/shared';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,7 +19,7 @@ export function useCreateServer() {
     mutationFn: (data: { name: string; type: string; url: string; token: string }) =>
       api.servers.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['servers', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['servers', 'list'] });
       toast({
         title: 'Server Added',
         description: 'The server has been added successfully.',
@@ -42,7 +42,7 @@ export function useDeleteServer() {
   return useMutation({
     mutationFn: (id: string) => api.servers.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['servers', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['servers', 'list'] });
       toast({
         title: 'Server Removed',
         description: 'The server has been removed successfully.',
@@ -65,8 +65,8 @@ export function useSyncServer() {
   return useMutation({
     mutationFn: (id: string) => api.servers.sync(id),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['servers', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['users', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['servers', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['users', 'list'] });
 
       // Show detailed results
       const parts: string[] = [];

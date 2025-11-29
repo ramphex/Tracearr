@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { User, Session, UserLocation, UserDevice, PaginatedResponse } from '@tracearr/shared';
+import type { User } from '@tracearr/shared';
 import { api } from '@/lib/api';
 
 export function useUsers(params: { page?: number; pageSize?: number } = {}) {
@@ -38,7 +38,7 @@ export function useUpdateUser() {
       // Update user in cache
       queryClient.setQueryData(['users', 'detail', variables.id], data);
       // Invalidate users list
-      queryClient.invalidateQueries({ queryKey: ['users', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['users', 'list'] });
     },
   });
 }

@@ -94,8 +94,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       });
 
       // Invalidate dashboard stats and session history
-      queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'list'] });
 
       toast({
         title: 'New Stream Started',
@@ -111,8 +111,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       });
 
       // Invalidate dashboard stats and session history (stopped session now has duration)
-      queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'list'] });
     });
 
     newSocket.on(WS_EVENTS.SESSION_UPDATED as 'session:updated', (session: ActiveSession) => {
@@ -125,8 +125,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
     newSocket.on(WS_EVENTS.VIOLATION_NEW as 'violation:new', (violation: ViolationWithDetails) => {
       // Invalidate violations query
-      queryClient.invalidateQueries({ queryKey: ['violations'] });
-      queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['violations'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats', 'dashboard'] });
 
       // Show toast notification
       const severityColors = {

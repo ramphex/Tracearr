@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { DashboardStats, PlayStats, UserStats, LocationStats } from '@tracearr/shared';
+import '@tracearr/shared';
 import { api } from '@/lib/api';
 
 export function useDashboardStats() {

@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { api, tokenStorage, type PlexServerInfo } from '@/lib/api';
-import { Logo, LogoIcon } from '@/components/brand/Logo';
+import { LogoIcon } from '@/components/brand/Logo';
 
 // Plex and Jellyfin brand colors
 const PLEX_COLOR = 'bg-[#E5A00D] hover:bg-[#C88A0B]';
@@ -60,7 +60,7 @@ export function Login() {
         setSetupLoading(false);
       }
     }
-    checkSetup();
+    void checkSetup();
   }, []);
 
   // Redirect if already authenticated
@@ -78,7 +78,7 @@ export function Login() {
 
       if (!result.authorized) {
         // Still waiting for PIN claim, continue polling
-        setTimeout(() => pollPlexPin(pinId), 2000);
+        setTimeout(() => void pollPlexPin(pinId), 2000);
         return;
       }
 
@@ -91,7 +91,7 @@ export function Login() {
       } else if (result.accessToken && result.refreshToken) {
         // Returning user - auto-connected, store tokens
         tokenStorage.setTokens(result.accessToken, result.refreshToken);
-        refetch();
+        void refetch();
         toast({ title: 'Success', description: 'Logged in successfully!' });
         navigate('/');
       }
@@ -116,7 +116,7 @@ export function Login() {
       window.open(result.authUrl, 'plex_auth', 'width=600,height=700,popup=yes');
 
       // Start polling
-      pollPlexPin(result.pinId);
+      void pollPlexPin(result.pinId);
     } catch (error) {
       resetPlexAuth();
       toast({
@@ -142,7 +142,7 @@ export function Login() {
 
       if (result.accessToken && result.refreshToken) {
         tokenStorage.setTokens(result.accessToken, result.refreshToken);
-        refetch();
+        void refetch();
         toast({ title: 'Success', description: `Connected to ${serverName}` });
         navigate('/');
       }
@@ -186,7 +186,7 @@ export function Login() {
 
       if (result.accessToken && result.refreshToken) {
         tokenStorage.setTokens(result.accessToken, result.refreshToken);
-        refetch();
+        void refetch();
         toast({ title: 'Success', description: 'Connected to Jellyfin server' });
         navigate('/');
       }
@@ -366,7 +366,7 @@ export function Login() {
                     type="url"
                     placeholder="http://localhost:8096"
                     value={jellyfinServerUrl}
-                    onChange={(e) => setJellyfinServerUrl(e.target.value)}
+                    onChange={(e) => { setJellyfinServerUrl(e.target.value); }}
                     required
                   />
                 </div>
@@ -378,7 +378,7 @@ export function Login() {
                       type="text"
                       placeholder="My Jellyfin Server"
                       value={jellyfinServerName}
-                      onChange={(e) => setJellyfinServerName(e.target.value)}
+                      onChange={(e) => { setJellyfinServerName(e.target.value); }}
                     />
                   </div>
                 )}
@@ -389,7 +389,7 @@ export function Login() {
                     type="text"
                     placeholder="Admin username"
                     value={jellyfinUsername}
-                    onChange={(e) => setJellyfinUsername(e.target.value)}
+                    onChange={(e) => { setJellyfinUsername(e.target.value); }}
                     required
                   />
                 </div>
@@ -400,7 +400,7 @@ export function Login() {
                     type="password"
                     placeholder="Password"
                     value={jellyfinPassword}
-                    onChange={(e) => setJellyfinPassword(e.target.value)}
+                    onChange={(e) => { setJellyfinPassword(e.target.value); }}
                     required
                   />
                 </div>

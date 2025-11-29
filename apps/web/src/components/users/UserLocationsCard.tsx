@@ -87,7 +87,7 @@ export function UserLocationsCard({
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {displayedLocations.map((location, index) => {
+          {displayedLocations.map((location) => {
             const locationKey = `${location.city ?? 'unknown'}-${location.country ?? 'unknown'}-${location.lat}-${location.lon}`;
             const percentage = totalSessions > 0
               ? Math.round((location.sessionCount / totalSessions) * 100)
@@ -140,7 +140,7 @@ export function UserLocationsCard({
             variant="ghost"
             size="sm"
             className="mt-3 w-full"
-            onClick={() => setIsExpanded(!isExpanded)}
+            onClick={() => { setIsExpanded(!isExpanded); }}
           >
             {isExpanded ? (
               <>

@@ -39,12 +39,12 @@ export function useUpdateSettings() {
       }
       toast({
         title: 'Failed to Update Settings',
-        description: (err as Error).message,
+        description: (err).message,
         variant: 'destructive',
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
       toast({
         title: 'Settings Updated',
         description: 'Your settings have been saved.',

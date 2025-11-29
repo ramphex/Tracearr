@@ -231,7 +231,7 @@ export function UserDevicesCard({
             variant="ghost"
             size="sm"
             className="mt-3 w-full"
-            onClick={() => setIsExpanded(!isExpanded)}
+            onClick={() => { setIsExpanded(!isExpanded); }}
           >
             {isExpanded ? (
               <>

@@ -73,7 +73,7 @@ export function Violations() {
   const handleDismiss = () => {
     if (dismissId) {
       dismissViolation.mutate(dismissId, {
-        onSuccess: () => setDismissId(null),
+        onSuccess: () => { setDismissId(null); },
       });
     }
   };
@@ -165,7 +165,7 @@ export function Violations() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => handleAcknowledge(violation.id)}
+                onClick={() => { handleAcknowledge(violation.id); }}
                 disabled={acknowledgeViolation.isPending}
               >
                 <Check className="mr-1 h-4 w-4" />
@@ -175,7 +175,7 @@ export function Violations() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setDismissId(violation.id)}
+              onClick={() => { setDismissId(violation.id); }}
               className="text-destructive hover:text-destructive"
             >
               <X className="mr-1 h-4 w-4" />
@@ -296,7 +296,7 @@ export function Violations() {
       </Card>
 
       {/* Dismiss Confirmation Dialog */}
-      <Dialog open={!!dismissId} onOpenChange={() => setDismissId(null)}>
+      <Dialog open={!!dismissId} onOpenChange={() => { setDismissId(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Dismiss Violation</DialogTitle>
@@ -306,7 +306,7 @@ export function Violations() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDismissId(null)}>
+            <Button variant="outline" onClick={() => { setDismissId(null); }}>
               Cancel
             </Button>
             <Button
