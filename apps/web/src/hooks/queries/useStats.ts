@@ -27,10 +27,17 @@ export function useUserStats() {
   });
 }
 
-export function useLocationStats() {
+export interface LocationStatsFilters {
+  days?: number;
+  userId?: string;
+  serverId?: string;
+  mediaType?: 'movie' | 'episode' | 'track';
+}
+
+export function useLocationStats(filters?: LocationStatsFilters) {
   return useQuery({
-    queryKey: ['stats', 'locations'],
-    queryFn: api.stats.locations,
+    queryKey: ['stats', 'locations', filters],
+    queryFn: () => api.stats.locations(filters),
     staleTime: 1000 * 60, // 1 minute
   });
 }

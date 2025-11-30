@@ -4,6 +4,7 @@ export {
   usePlaysStats,
   useUserStats,
   useLocationStats,
+  type LocationStatsFilters,
 } from './useStats';
 
 // Session hooks

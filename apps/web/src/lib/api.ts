@@ -10,7 +10,7 @@ import type {
   DashboardStats,
   PlayStats,
   UserStats,
-  LocationStats,
+  LocationStatsResponse,
   UserLocation,
   UserDevice,
   Settings,
@@ -281,9 +281,19 @@ class ApiClient {
       const response = await this.request<{ data: UserStats[] }>('/stats/users');
       return response.data;
     },
-    locations: async () => {
-      const response = await this.request<{ data: LocationStats[] }>('/stats/locations');
-      return response.data;
+    locations: async (params?: {
+      days?: number;
+      userId?: string;
+      serverId?: string;
+      mediaType?: 'movie' | 'episode' | 'track';
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.days) searchParams.set('days', String(params.days));
+      if (params?.userId) searchParams.set('userId', params.userId);
+      if (params?.serverId) searchParams.set('serverId', params.serverId);
+      if (params?.mediaType) searchParams.set('mediaType', params.mediaType);
+      const query = searchParams.toString();
+      return this.request<LocationStatsResponse>(`/stats/locations${query ? `?${query}` : ''}`);
     },
   };
 
