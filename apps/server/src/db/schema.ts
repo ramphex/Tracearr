@@ -18,7 +18,7 @@ import {
 import { relations } from 'drizzle-orm';
 
 // Server types enum
-export const serverTypeEnum = ['plex', 'jellyfin'] as const;
+export const serverTypeEnum = ['plex', 'jellyfin', 'emby'] as const;
 
 // Session state enum
 export const sessionStateEnum = ['playing', 'paused', 'stopped'] as const;
