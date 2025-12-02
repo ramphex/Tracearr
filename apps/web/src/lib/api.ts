@@ -1,6 +1,9 @@
 import type {
   Server,
   User,
+  UserRole,
+  ServerUserWithIdentity,
+  ServerUserDetail,
   Session,
   SessionWithDetails,
   ActiveSession,
@@ -10,6 +13,7 @@ import type {
   DashboardStats,
   PlayStats,
   UserStats,
+  TopUserStats,
   LocationStatsResponse,
   UserLocation,
   UserDevice,
@@ -102,7 +106,11 @@ class ApiClient {
       });
 
       if (!response.ok) {
-        tokenStorage.clearTokens();
+        // Only clear tokens on explicit auth rejection (401/403)
+        // Don't clear on server errors (500, 502, 503) - server might be restarting
+        if (response.status === 401 || response.status === 403) {
+          tokenStorage.clearTokens();
+        }
         return false;
       }
 
@@ -114,7 +122,8 @@ class ApiClient {
 
       return false;
     } catch {
-      tokenStorage.clearTokens();
+      // Network error (server down, timeout, etc.)
+      // DON'T clear tokens - they might still be valid when server comes back
       return false;
     }
   }
@@ -173,8 +182,8 @@ class ApiClient {
         // Retry the original request with new token
         return this.request<T>(path, options, true);
       }
-      // Refresh failed - clear tokens and throw
-      tokenStorage.clearTokens();
+      // Refresh failed - tokens already cleared by refreshAccessToken() if it was a real auth failure
+      // Don't clear here - might just be a network error (server restarting)
     }
 
     if (!response.ok) {
@@ -206,16 +215,17 @@ class ApiClient {
       userId: string;
       username: string;
       email: string | null;
-      thumbUrl: string | null;
-      role: 'owner' | 'guest';
-      trustScore: number;
+      thumbnail: string | null;
+      role: UserRole;
+      aggregateTrustScore: number;
       serverIds: string[];
       hasPassword?: boolean;
       hasPlexLinked?: boolean;
-      // Fallback fields from User type
+      // Fallback fields for backwards compatibility
       id?: string;
       serverId?: string;
-      isOwner?: boolean;
+      thumbUrl?: string | null;
+      trustScore?: number;
     }>('/auth/me'),
     logout: () => this.request<void>('/auth/logout', { method: 'POST' }),
 
@@ -328,11 +338,11 @@ class ApiClient {
       const searchParams = new URLSearchParams();
       if (params?.page) searchParams.set('page', String(params.page));
       if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
-      return this.request<PaginatedResponse<User>>(`/users?${searchParams.toString()}`);
+      return this.request<PaginatedResponse<ServerUserWithIdentity>>(`/users?${searchParams.toString()}`);
     },
-    get: (id: string) => this.request<User>(`/users/${id}`),
-    update: (id: string, data: Partial<User>) =>
-      this.request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    get: (id: string) => this.request<ServerUserDetail>(`/users/${id}`),
+    update: (id: string, data: { trustScore?: number }) =>
+      this.request<ServerUserWithIdentity>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     sessions: (id: string, params?: { page?: number; pageSize?: number }) => {
       const query = new URLSearchParams(params as Record<string, string>).toString();
       return this.request<PaginatedResponse<Session>>(`/users/${id}/sessions?${query}`);
@@ -408,13 +418,13 @@ class ApiClient {
     },
     locations: async (params?: {
       days?: number;
-      userId?: string;
+      serverUserId?: string;
       serverId?: string;
       mediaType?: 'movie' | 'episode' | 'track';
     }) => {
       const searchParams = new URLSearchParams();
       if (params?.days) searchParams.set('days', String(params.days));
-      if (params?.userId) searchParams.set('userId', params.userId);
+      if (params?.serverUserId) searchParams.set('serverUserId', params.serverUserId);
       if (params?.serverId) searchParams.set('serverId', params.serverId);
       if (params?.mediaType) searchParams.set('mediaType', params.mediaType);
       const query = searchParams.toString();
@@ -448,17 +458,7 @@ class ApiClient {
       }>(`/stats/quality?period=${period ?? 'month'}`);
     },
     topUsers: async (period?: string) => {
-      const response = await this.request<{ data: {
-        userId: string;
-        username: string;
-        thumbUrl: string | null;
-        serverId: string | null;
-        trustScore: number;
-        playCount: number;
-        watchTimeHours: number;
-        topMediaType: string | null;
-        topContent: string | null;
-      }[] }>(`/stats/top-users?period=${period ?? 'month'}`);
+      const response = await this.request<{ data: TopUserStats[] }>(`/stats/top-users?period=${period ?? 'month'}`);
       return response.data;
     },
     topContent: async (period?: string) => {
