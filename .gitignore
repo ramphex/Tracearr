@@ -35,5 +35,8 @@ pnpm-debug.log*
 data/*.mmdb
 !data/GeoLite2-City.mmdb
 
+# Local server data
+apps/server/data/
+
 # Docker
 docker-compose.override.yml
