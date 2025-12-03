@@ -19,5 +19,8 @@ CREATE TABLE "mobile_tokens" (
 	CONSTRAINT "mobile_tokens_token_hash_unique" UNIQUE("token_hash")
 );
 --> statement-breakpoint
+ALTER TABLE "settings" ADD COLUMN "external_url" text;--> statement-breakpoint
+ALTER TABLE "settings" ADD COLUMN "base_path" varchar(100) DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "settings" ADD COLUMN "trust_proxy" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 CREATE INDEX "mobile_sessions_device_id_idx" ON "mobile_sessions" USING btree ("device_id");--> statement-breakpoint
 CREATE INDEX "mobile_sessions_refresh_token_idx" ON "mobile_sessions" USING btree ("refresh_token_hash");

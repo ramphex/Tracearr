@@ -1,6 +1,6 @@
 {
-  "id": "feec3700-2fe4-4604-821d-7dcd58af90e1",
-  "prevId": "742f2a07-7e40-4d88-bce0-5e287436e6f5",
+  "id": "d030aeff-fced-4c3c-9be4-744259c70942",
+  "prevId": "88b17896-d430-4ffe-a00c-58dff181bc31",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -190,8 +190,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
+        "server_user_id": {
+          "name": "server_user_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -234,11 +234,11 @@
           "method": "btree",
           "with": {}
         },
-        "rules_user_id_idx": {
-          "name": "rules_user_id_idx",
+        "rules_server_user_id_idx": {
+          "name": "rules_server_user_id_idx",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "server_user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -251,12 +251,218 @@
         }
       },
       "foreignKeys": {
-        "rules_user_id_users_id_fk": {
-          "name": "rules_user_id_users_id_fk",
+        "rules_server_user_id_server_users_id_fk": {
+          "name": "rules_server_user_id_server_users_id_fk",
           "tableFrom": "rules",
+          "tableTo": "server_users",
+          "columnsFrom": [
+            "server_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.server_users": {
+      "name": "server_users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "server_id": {
+          "name": "server_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "username": {
+          "name": "username",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "thumb_url": {
+          "name": "thumb_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_server_admin": {
+          "name": "is_server_admin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "trust_score": {
+          "name": "trust_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 100
+        },
+        "session_count": {
+          "name": "session_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "server_users_user_server_unique": {
+          "name": "server_users_user_server_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "server_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "server_users_server_external_unique": {
+          "name": "server_users_server_external_unique",
+          "columns": [
+            {
+              "expression": "server_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "server_users_user_idx": {
+          "name": "server_users_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "server_users_server_idx": {
+          "name": "server_users_server_idx",
+          "columns": [
+            {
+              "expression": "server_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "server_users_username_idx": {
+          "name": "server_users_username_idx",
+          "columns": [
+            {
+              "expression": "username",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "server_users_user_id_users_id_fk": {
+          "name": "server_users_user_id_users_id_fk",
+          "tableFrom": "server_users",
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "server_users_server_id_servers_id_fk": {
+          "name": "server_users_server_id_servers_id_fk",
+          "tableFrom": "server_users",
+          "tableTo": "servers",
+          "columnsFrom": [
+            "server_id"
           ],
           "columnsTo": [
             "id"
@@ -346,8 +552,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
+        "server_user_id": {
+          "name": "server_user_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -562,11 +768,11 @@
         }
       },
       "indexes": {
-        "sessions_user_time_idx": {
-          "name": "sessions_user_time_idx",
+        "sessions_server_user_time_idx": {
+          "name": "sessions_server_user_time_idx",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "server_user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -644,7 +850,7 @@
           "name": "sessions_device_idx",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "server_user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -676,11 +882,11 @@
           "method": "btree",
           "with": {}
         },
-        "sessions_user_rating_idx": {
-          "name": "sessions_user_rating_idx",
+        "sessions_server_user_rating_idx": {
+          "name": "sessions_server_user_rating_idx",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "server_user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -853,12 +1059,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "sessions_user_id_users_id_fk": {
-          "name": "sessions_user_id_users_id_fk",
+        "sessions_server_user_id_server_users_id_fk": {
+          "name": "sessions_server_user_id_server_users_id_fk",
           "tableFrom": "sessions",
-          "tableTo": "users",
+          "tableTo": "server_users",
           "columnsFrom": [
-            "user_id"
+            "server_user_id"
           ],
           "columnsTo": [
             "id"
@@ -957,6 +1163,26 @@
           "primaryKey": false,
           "notNull": false
         },
+        "external_url": {
+          "name": "external_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_path": {
+          "name": "base_path",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "trust_proxy": {
+          "name": "trust_proxy",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -984,33 +1210,27 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "server_id": {
-          "name": "server_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_id": {
-          "name": "external_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "username": {
           "name": "username",
-          "type": "varchar(255)",
+          "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "thumbnail": {
+          "name": "thumbnail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "email": {
           "name": "email",
           "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "thumb_url": {
-          "name": "thumb_url",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1026,26 +1246,26 @@
           "primaryKey": false,
           "notNull": false
         },
-        "is_owner": {
-          "name": "is_owner",
-          "type": "boolean",
+        "role": {
+          "name": "role",
+          "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true,
-          "default": false
+          "default": "'member'"
         },
-        "allow_guest": {
-          "name": "allow_guest",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "trust_score": {
-          "name": "trust_score",
+        "aggregate_trust_score": {
+          "name": "aggregate_trust_score",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "default": 100
+        },
+        "total_violations": {
+          "name": "total_violations",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -1063,11 +1283,11 @@
         }
       },
       "indexes": {
-        "users_server_id_idx": {
-          "name": "users_server_id_idx",
+        "users_username_idx": {
+          "name": "users_username_idx",
           "columns": [
             {
-              "expression": "server_id",
+              "expression": "username",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1078,23 +1298,17 @@
           "method": "btree",
           "with": {}
         },
-        "users_external_id_idx": {
-          "name": "users_external_id_idx",
+        "users_email_unique": {
+          "name": "users_email_unique",
           "columns": [
             {
-              "expression": "server_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "external_id",
+              "expression": "email",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1114,11 +1328,11 @@
           "method": "btree",
           "with": {}
         },
-        "users_username_idx": {
-          "name": "users_username_idx",
+        "users_role_idx": {
+          "name": "users_role_idx",
           "columns": [
             {
-              "expression": "username",
+              "expression": "role",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1130,21 +1344,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "users_server_id_servers_id_fk": {
-          "name": "users_server_id_servers_id_fk",
-          "tableFrom": "users",
-          "tableTo": "servers",
-          "columnsFrom": [
-            "server_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1168,8 +1368,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
+        "server_user_id": {
+          "name": "server_user_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1207,11 +1407,11 @@
         }
       },
       "indexes": {
-        "violations_user_id_idx": {
-          "name": "violations_user_id_idx",
+        "violations_server_user_id_idx": {
+          "name": "violations_server_user_id_idx",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "server_user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1267,12 +1467,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "violations_user_id_users_id_fk": {
-          "name": "violations_user_id_users_id_fk",
+        "violations_server_user_id_server_users_id_fk": {
+          "name": "violations_server_user_id_server_users_id_fk",
           "tableFrom": "violations",
-          "tableTo": "users",
+          "tableTo": "server_users",
           "columnsFrom": [
-            "user_id"
+            "server_user_id"
           ],
           "columnsTo": [
             "id"
