@@ -158,101 +158,352 @@ async function convertToHypertable(): Promise<void> {
       if_not_exists => true
     )
   `);
+
+  // Create expression indexes for COALESCE(reference_id, id) pattern
+  // This pattern is used throughout the codebase for play grouping
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_play_id
+    ON sessions ((COALESCE(reference_id, id)))
+  `);
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_time_play_id
+    ON sessions (started_at DESC, (COALESCE(reference_id, id)))
+  `);
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_play_id
+    ON sessions (server_user_id, (COALESCE(reference_id, id)))
+  `);
+}
+
+/**
+ * Create partial indexes for common filtered queries
+ * These reduce scan size by excluding irrelevant rows
+ */
+async function createPartialIndexes(): Promise<void> {
+  // Partial index for geo queries (excludes NULL rows - ~20% savings)
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_geo_partial
+    ON sessions (geo_lat, geo_lon, started_at DESC)
+    WHERE geo_lat IS NOT NULL AND geo_lon IS NOT NULL
+  `);
+
+  // Partial index for unacknowledged violations by user (hot path for user-specific alerts)
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_violations_unacked_partial
+    ON violations (server_user_id, created_at DESC)
+    WHERE acknowledged_at IS NULL
+  `);
+
+  // Partial index for unacknowledged violations list (hot path for main violations list)
+  // This index is optimized for the common query: ORDER BY created_at DESC WHERE acknowledged_at IS NULL
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_violations_unacked_list
+    ON violations (created_at DESC)
+    WHERE acknowledged_at IS NULL
+  `);
+
+  // Partial index for active/playing sessions
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_active_partial
+    ON sessions (server_id, server_user_id, started_at DESC)
+    WHERE state = 'playing'
+  `);
+
+  // Partial index for transcoded sessions (quality analysis)
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_transcode_partial
+    ON sessions (started_at DESC, quality, bitrate)
+    WHERE is_transcode = true
+  `);
+}
+
+/**
+ * Create optimized indexes for top content queries
+ * Time-prefixed indexes enable efficient time-filtered aggregations
+ */
+async function createContentIndexes(): Promise<void> {
+  // Time-prefixed index for media title queries
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_media_time
+    ON sessions (started_at DESC, media_type, media_title)
+  `);
+
+  // Time-prefixed index for show/episode queries (excludes NULLs)
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_show_time
+    ON sessions (started_at DESC, grandparent_title, season_number, episode_number)
+    WHERE grandparent_title IS NOT NULL
+  `);
+
+  // Covering index for top content query (includes frequently accessed columns)
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_top_content_covering
+    ON sessions (started_at DESC, media_title, media_type)
+    INCLUDE (duration_ms, server_user_id)
+  `);
+
+  // Device tracking index for device velocity rule
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_sessions_device_tracking
+    ON sessions (server_user_id, started_at DESC, device_id, ip_address)
+  `);
+}
+
+/**
+ * Check if TimescaleDB Toolkit is available
+ */
+async function isToolkitAvailable(): Promise<boolean> {
+  try {
+    const result = await db.execute(sql`
+      SELECT EXISTS(
+        SELECT 1 FROM pg_extension WHERE extname = 'timescaledb_toolkit'
+      ) as installed
+    `);
+    return (result.rows[0] as { installed: boolean })?.installed ?? false;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Create continuous aggregates for dashboard performance
+ *
+ * Uses HyperLogLog from TimescaleDB Toolkit for approximate distinct counts
+ * (99.5% accuracy) since TimescaleDB doesn't support COUNT(DISTINCT) in
+ * continuous aggregates. Falls back to COUNT(*) if Toolkit unavailable.
  */
 async function createContinuousAggregates(): Promise<void> {
-  // Daily plays by server user (per-server account)
-  await db.execute(sql`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS daily_plays_by_user
-    WITH (timescaledb.continuous) AS
-    SELECT
-      time_bucket('1 day', started_at) AS day,
-      server_user_id,
-      COUNT(*) AS play_count,
-      SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
-    FROM sessions
-    GROUP BY day, server_user_id
-    WITH NO DATA
-  `);
+  const hasToolkit = await isToolkitAvailable();
 
-  // Daily plays by platform
-  await db.execute(sql`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS daily_plays_by_platform
-    WITH (timescaledb.continuous) AS
-    SELECT
-      time_bucket('1 day', started_at) AS day,
-      platform,
-      COUNT(*) AS play_count,
-      SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
-    FROM sessions
-    GROUP BY day, platform
-    WITH NO DATA
-  `);
+  // Drop old unused aggregate (platform stats use prepared statement instead)
+  await db.execute(sql`DROP MATERIALIZED VIEW IF EXISTS daily_plays_by_platform CASCADE`);
 
-  // Hourly concurrent streams
-  await db.execute(sql`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_concurrent_streams
-    WITH (timescaledb.continuous) AS
-    SELECT
-      time_bucket('1 hour', started_at) AS hour,
-      server_id,
-      COUNT(*) AS stream_count
-    FROM sessions
-    WHERE state IN ('playing', 'paused')
-    GROUP BY hour, server_id
-    WITH NO DATA
-  `);
+  if (hasToolkit) {
+    // Use HyperLogLog for accurate distinct play counting
+    // hyperloglog(32768, ...) gives ~0.4% error rate
 
-  // Hourly play patterns (for hour-of-day analytics chart)
-  await db.execute(sql`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_play_patterns
-    WITH (timescaledb.continuous) AS
-    SELECT
-      time_bucket('1 day', started_at) AS day,
-      EXTRACT(HOUR FROM started_at)::int AS hour_of_day,
-      COUNT(*) AS play_count,
-      SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
-    FROM sessions
-    GROUP BY day, hour_of_day
-    WITH NO DATA
-  `);
+    // Daily plays by user with HyperLogLog
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_plays_by_user
+      WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        server_user_id,
+        hyperloglog(32768, COALESCE(reference_id, id)) AS plays_hll,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY day, server_user_id
+      WITH NO DATA
+    `);
 
-  // Daily play patterns (for day-of-week analytics chart)
-  await db.execute(sql`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS daily_play_patterns
-    WITH (timescaledb.continuous) AS
-    SELECT
-      time_bucket('1 week', started_at) AS week,
-      EXTRACT(DOW FROM started_at)::int AS day_of_week,
-      COUNT(*) AS play_count,
-      SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
-    FROM sessions
-    GROUP BY week, day_of_week
-    WITH NO DATA
-  `);
+    // Daily plays by server with HyperLogLog
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_plays_by_server
+      WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        server_id,
+        hyperloglog(32768, COALESCE(reference_id, id)) AS plays_hll,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY day, server_id
+      WITH NO DATA
+    `);
+
+    // Daily play patterns (day of week) with HyperLogLog
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_play_patterns
+      WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+      SELECT
+        time_bucket('1 week', started_at) AS week,
+        EXTRACT(DOW FROM started_at)::int AS day_of_week,
+        hyperloglog(32768, COALESCE(reference_id, id)) AS plays_hll,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY week, day_of_week
+      WITH NO DATA
+    `);
+
+    // Hourly play patterns with HyperLogLog
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_play_patterns
+      WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        EXTRACT(HOUR FROM started_at)::int AS hour_of_day,
+        hyperloglog(32768, COALESCE(reference_id, id)) AS plays_hll,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY day, hour_of_day
+      WITH NO DATA
+    `);
+
+    // Daily stats summary (main dashboard aggregate) with HyperLogLog
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_stats_summary
+      WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        hyperloglog(32768, COALESCE(reference_id, id)) AS plays_hll,
+        hyperloglog(32768, server_user_id) AS users_hll,
+        hyperloglog(32768, server_id) AS servers_hll,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms,
+        AVG(COALESCE(duration_ms, 0))::bigint AS avg_duration_ms
+      FROM sessions
+      GROUP BY day
+      WITH NO DATA
+    `);
+
+    // Hourly concurrent streams (used by /concurrent endpoint)
+    // Note: This uses COUNT(*) since concurrent streams isn't about unique plays
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_concurrent_streams
+      WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+      SELECT
+        time_bucket('1 hour', started_at) AS hour,
+        server_id,
+        COUNT(*) AS stream_count
+      FROM sessions
+      WHERE state IN ('playing', 'paused')
+      GROUP BY hour, server_id
+      WITH NO DATA
+    `);
+  } else {
+    // Fallback: Standard aggregates without HyperLogLog
+    // Note: These use COUNT(*) which overcounts resumed sessions
+    console.warn('TimescaleDB Toolkit not available - using COUNT(*) aggregates');
+
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_plays_by_user
+      WITH (timescaledb.continuous) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        server_user_id,
+        COUNT(*) AS play_count,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY day, server_user_id
+      WITH NO DATA
+    `);
+
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_plays_by_server
+      WITH (timescaledb.continuous) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        server_id,
+        COUNT(*) AS play_count,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY day, server_id
+      WITH NO DATA
+    `);
+
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_play_patterns
+      WITH (timescaledb.continuous) AS
+      SELECT
+        time_bucket('1 week', started_at) AS week,
+        EXTRACT(DOW FROM started_at)::int AS day_of_week,
+        COUNT(*) AS play_count,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY week, day_of_week
+      WITH NO DATA
+    `);
+
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_play_patterns
+      WITH (timescaledb.continuous) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        EXTRACT(HOUR FROM started_at)::int AS hour_of_day,
+        COUNT(*) AS play_count,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+      FROM sessions
+      GROUP BY day, hour_of_day
+      WITH NO DATA
+    `);
+
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS daily_stats_summary
+      WITH (timescaledb.continuous) AS
+      SELECT
+        time_bucket('1 day', started_at) AS day,
+        COUNT(DISTINCT COALESCE(reference_id, id)) AS play_count,
+        COUNT(DISTINCT server_user_id) AS user_count,
+        COUNT(DISTINCT server_id) AS server_count,
+        SUM(COALESCE(duration_ms, 0)) AS total_duration_ms,
+        AVG(COALESCE(duration_ms, 0))::bigint AS avg_duration_ms
+      FROM sessions
+      GROUP BY day
+      WITH NO DATA
+    `);
+
+    // Hourly concurrent streams (used by /concurrent endpoint)
+    await db.execute(sql`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS hourly_concurrent_streams
+      WITH (timescaledb.continuous) AS
+      SELECT
+        time_bucket('1 hour', started_at) AS hour,
+        server_id,
+        COUNT(*) AS stream_count
+      FROM sessions
+      WHERE state IN ('playing', 'paused')
+      GROUP BY hour, server_id
+      WITH NO DATA
+    `);
+  }
 }
 
 /**
  * Set up refresh policies for continuous aggregates
+ * Refreshes every 5 minutes with 1 hour lag for real-time dashboard
  */
 async function setupRefreshPolicies(): Promise<void> {
   await db.execute(sql`
     SELECT add_continuous_aggregate_policy('daily_plays_by_user',
       start_offset => INTERVAL '3 days',
       end_offset => INTERVAL '1 hour',
-      schedule_interval => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '5 minutes',
       if_not_exists => true
     )
   `);
 
   await db.execute(sql`
-    SELECT add_continuous_aggregate_policy('daily_plays_by_platform',
+    SELECT add_continuous_aggregate_policy('daily_plays_by_server',
       start_offset => INTERVAL '3 days',
       end_offset => INTERVAL '1 hour',
-      schedule_interval => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '5 minutes',
+      if_not_exists => true
+    )
+  `);
+
+  await db.execute(sql`
+    SELECT add_continuous_aggregate_policy('daily_play_patterns',
+      start_offset => INTERVAL '3 days',
+      end_offset => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '5 minutes',
+      if_not_exists => true
+    )
+  `);
+
+  await db.execute(sql`
+    SELECT add_continuous_aggregate_policy('hourly_play_patterns',
+      start_offset => INTERVAL '3 days',
+      end_offset => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '5 minutes',
+      if_not_exists => true
+    )
+  `);
+
+  await db.execute(sql`
+    SELECT add_continuous_aggregate_policy('daily_stats_summary',
+      start_offset => INTERVAL '3 days',
+      end_offset => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '5 minutes',
       if_not_exists => true
     )
   `);
@@ -261,25 +512,7 @@ async function setupRefreshPolicies(): Promise<void> {
     SELECT add_continuous_aggregate_policy('hourly_concurrent_streams',
       start_offset => INTERVAL '1 day',
       end_offset => INTERVAL '1 hour',
-      schedule_interval => INTERVAL '30 minutes',
-      if_not_exists => true
-    )
-  `);
-
-  await db.execute(sql`
-    SELECT add_continuous_aggregate_policy('hourly_play_patterns',
-      start_offset => INTERVAL '30 days',
-      end_offset => INTERVAL '1 hour',
-      schedule_interval => INTERVAL '1 hour',
-      if_not_exists => true
-    )
-  `);
-
-  await db.execute(sql`
-    SELECT add_continuous_aggregate_policy('daily_play_patterns',
-      start_offset => INTERVAL '30 days',
-      end_offset => INTERVAL '1 hour',
-      schedule_interval => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '5 minutes',
       if_not_exists => true
     )
   `);
@@ -385,6 +618,16 @@ export async function initTimescaleDB(): Promise<{
 
   actions.push('TimescaleDB extension found');
 
+  // Enable TimescaleDB Toolkit for HyperLogLog (approximate distinct counts)
+  try {
+    await db.execute(sql`CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit`);
+    actions.push('TimescaleDB Toolkit extension enabled');
+  } catch (err) {
+    // Toolkit may not be available in all installations
+    console.warn('TimescaleDB Toolkit not available - using standard aggregates');
+    actions.push('TimescaleDB Toolkit not available (optional)');
+  }
+
   // Check if sessions is already a hypertable
   const isHypertable = await isSessionsHypertable();
   if (!isHypertable) {
@@ -398,10 +641,11 @@ export async function initTimescaleDB(): Promise<{
   const existingAggregates = await getContinuousAggregates();
   const expectedAggregates = [
     'daily_plays_by_user',
-    'daily_plays_by_platform',
-    'hourly_concurrent_streams',
-    'hourly_play_patterns',
+    'daily_plays_by_server',
     'daily_play_patterns',
+    'hourly_play_patterns',
+    'daily_stats_summary',
+    'hourly_concurrent_streams',
   ];
 
   const missingAggregates = expectedAggregates.filter(
@@ -423,6 +667,24 @@ export async function initTimescaleDB(): Promise<{
     actions.push('Enabled compression on sessions');
   } else {
     actions.push('Compression already enabled');
+  }
+
+  // Create partial indexes for optimized filtered queries
+  try {
+    await createPartialIndexes();
+    actions.push('Created partial indexes (geo, violations, active, transcode)');
+  } catch (err) {
+    console.warn('Failed to create some partial indexes:', err);
+    actions.push('Partial indexes: some may already exist');
+  }
+
+  // Create content and device tracking indexes
+  try {
+    await createContentIndexes();
+    actions.push('Created content and device tracking indexes');
+  } catch (err) {
+    console.warn('Failed to create some content indexes:', err);
+    actions.push('Content indexes: some may already exist');
   }
 
   // Get final status
