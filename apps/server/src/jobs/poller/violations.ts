@@ -6,13 +6,20 @@
  */
 
 import { eq, sql } from 'drizzle-orm';
+import type { ExtractTablesWithRelations } from 'drizzle-orm';
+import type { PgTransaction } from 'drizzle-orm/pg-core';
+import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
 import type { Rule, ViolationSeverity, ViolationWithDetails } from '@tracearr/shared';
 import { WS_EVENTS } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { servers, serverUsers, sessions, violations } from '../../db/schema.js';
+import type * as schema from '../../db/schema.js';
 import type { RuleEvaluationResult } from '../../services/rules.js';
 import type { PubSubService } from '../../services/cache.js';
 import { enqueueNotification } from '../notificationQueue.js';
+
+// Type for transaction context
+type TransactionContext = PgTransaction<PostgresJsQueryResultHKT, typeof schema, ExtractTablesWithRelations<typeof schema>>;
 
 // ============================================================================
 // Trust Score Calculation
@@ -67,6 +74,12 @@ export function doesRuleApplyToUser(
  * Create a violation from rule evaluation result.
  * Uses a transaction to ensure violation insert and trust score update are atomic.
  *
+ * @deprecated Use `createViolationInTransaction()` + `broadcastViolations()` instead
+ * for proper atomic behavior when creating sessions and violations together.
+ * This function creates its own transaction, which cannot be combined with
+ * session creation. Only use this for standalone violation creation outside
+ * the poller flow.
+ *
  * @param ruleId - ID of the rule that was violated
  * @param serverUserId - ID of the server user who violated the rule
  * @param sessionId - ID of the session where violation occurred
@@ -75,14 +88,15 @@ export function doesRuleApplyToUser(
  * @param pubSubService - Optional pub/sub service for WebSocket broadcast
  *
  * @example
- * await createViolation(
- *   'rule-123',
- *   'server-user-456',
- *   'session-789',
- *   { violated: true, severity: 'warning', data: { reason: 'Multiple streams' } },
- *   rule,
- *   pubSubService
- * );
+ * // Preferred pattern (in poller):
+ * const violationResults = await db.transaction(async (tx) => {
+ *   const session = await tx.insert(sessions).values(data).returning();
+ *   return await createViolationInTransaction(tx, ruleId, serverUserId, session.id, result, rule);
+ * });
+ * await broadcastViolations(violationResults, sessionId, pubSubService);
+ *
+ * // Legacy pattern (standalone, avoid in new code):
+ * await createViolation(ruleId, serverUserId, sessionId, result, rule, pubSubService);
  */
 export async function createViolation(
   ruleId: string,
@@ -147,6 +161,140 @@ export async function createViolation(
       data: created.data,
       acknowledgedAt: created.acknowledgedAt,
       createdAt: created.createdAt,
+      user: {
+        id: details.userId,
+        username: details.username,
+        thumbUrl: details.thumbUrl,
+      },
+      rule: {
+        id: rule.id,
+        name: rule.name,
+        type: rule.type,
+      },
+      server: {
+        id: details.serverId,
+        name: details.serverName,
+        type: details.serverType,
+      },
+    };
+
+    await pubSubService.publish(WS_EVENTS.VIOLATION_NEW, violationWithDetails);
+    console.log(`[Poller] Violation broadcast: ${rule.name} for user ${details.username}`);
+
+    // Enqueue notification for async dispatch (Discord, webhooks, push)
+    await enqueueNotification({ type: 'violation', payload: violationWithDetails });
+  }
+}
+
+// ============================================================================
+// Transaction-Aware Violation Creation
+// ============================================================================
+
+/**
+ * Result of creating a violation within a transaction.
+ * Contains data needed for post-transaction broadcasting.
+ */
+export interface ViolationInsertResult {
+  violation: typeof violations.$inferSelect;
+  rule: Rule;
+  trustPenalty: number;
+}
+
+/**
+ * Create a violation within an existing transaction context.
+ * Use this when session insert + violation creation must be atomic.
+ *
+ * This function:
+ * 1. Inserts the violation record
+ * 2. Updates the server user's trust score
+ * Both within the provided transaction.
+ *
+ * Broadcasting/notification must be done AFTER the transaction commits.
+ *
+ * @param tx - Transaction context
+ * @param ruleId - ID of the rule that was violated
+ * @param serverUserId - ID of the server user who violated the rule
+ * @param sessionId - ID of the session where violation occurred
+ * @param result - Rule evaluation result with severity and data
+ * @param rule - Full rule object for broadcast details
+ * @returns Violation insert result for post-transaction broadcasting
+ */
+export async function createViolationInTransaction(
+  tx: TransactionContext,
+  ruleId: string,
+  serverUserId: string,
+  sessionId: string,
+  result: RuleEvaluationResult,
+  rule: Rule
+): Promise<ViolationInsertResult> {
+  const trustPenalty = getTrustScorePenalty(result.severity);
+
+  const [violation] = await tx
+    .insert(violations)
+    .values({
+      ruleId,
+      serverUserId,
+      sessionId,
+      severity: result.severity,
+      data: result.data,
+    })
+    .returning();
+
+  // Decrease server user trust score based on severity
+  await tx
+    .update(serverUsers)
+    .set({
+      trustScore: sql`GREATEST(0, ${serverUsers.trustScore} - ${trustPenalty})`,
+      updatedAt: new Date(),
+    })
+    .where(eq(serverUsers.id, serverUserId));
+
+  return { violation: violation!, rule, trustPenalty };
+}
+
+/**
+ * Broadcast violation events after transaction has committed.
+ * Call this AFTER the transaction to ensure data is persisted before broadcasting.
+ *
+ * @param violationResults - Array of violation insert results
+ * @param sessionId - Session ID for fetching server details
+ * @param pubSubService - PubSub service for WebSocket broadcast
+ */
+export async function broadcastViolations(
+  violationResults: ViolationInsertResult[],
+  sessionId: string,
+  pubSubService: PubSubService | null
+): Promise<void> {
+  if (!pubSubService || violationResults.length === 0) return;
+
+  // Get server user and server details for the violation broadcast (single query for all)
+  const [details] = await db
+    .select({
+      userId: serverUsers.id,
+      username: serverUsers.username,
+      thumbUrl: serverUsers.thumbUrl,
+      serverId: servers.id,
+      serverName: servers.name,
+      serverType: servers.type,
+    })
+    .from(sessions)
+    .innerJoin(serverUsers, eq(serverUsers.id, sessions.serverUserId))
+    .innerJoin(servers, eq(servers.id, sessions.serverId))
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+
+  if (!details) return;
+
+  for (const { violation, rule } of violationResults) {
+    const violationWithDetails: ViolationWithDetails = {
+      id: violation.id,
+      ruleId: violation.ruleId,
+      serverUserId: violation.serverUserId,
+      sessionId: violation.sessionId,
+      severity: violation.severity,
+      data: violation.data,
+      acknowledgedAt: violation.acknowledgedAt,
+      createdAt: violation.createdAt,
       user: {
         id: details.userId,
         username: details.username,

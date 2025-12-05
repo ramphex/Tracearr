@@ -7,21 +7,23 @@
  * - Lifecycle management: start, stop, trigger
  */
 
-import { eq, and, desc, isNull, gte } from 'drizzle-orm';
-import { POLLING_INTERVALS, TIME_MS, type ActiveSession, type SessionState, type Rule } from '@tracearr/shared';
+import { eq, and, desc, isNull, gte, inArray } from 'drizzle-orm';
+import { POLLING_INTERVALS, TIME_MS, REDIS_KEYS, CACHE_TTL, type ActiveSession, type SessionState, type Rule } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { servers, serverUsers, sessions, users } from '../../db/schema.js';
 import { createMediaServerClient } from '../../services/mediaServer/index.js';
 import { geoipService, type GeoLocation } from '../../services/geoip.js';
 import { ruleEngine } from '../../services/rules.js';
 import type { CacheService, PubSubService } from '../../services/cache.js';
+import { atomicMultiUpdate, withCacheInvalidation } from '../../services/cache.js';
+import type { Redis } from 'ioredis';
 import { sseManager } from '../../services/sseManager.js';
 
 import type { PollerConfig, ServerWithToken, ServerProcessingResult } from './types.js';
 import { mapMediaSession } from './sessionMapper.js';
 import { batchGetRecentUserSessions, getActiveRules } from './database.js';
 import { calculatePauseAccumulation, calculateStopDuration, checkWatchCompletion } from './stateTracker.js';
-import { createViolation } from './violations.js';
+import { createViolationInTransaction, broadcastViolations, doesRuleApplyToUser, type ViolationInsertResult } from './violations.js';
 import { enqueueNotification } from '../notificationQueue.js';
 
 // ============================================================================
@@ -31,6 +33,7 @@ import { enqueueNotification } from '../notificationQueue.js';
 let pollingInterval: NodeJS.Timeout | null = null;
 let cacheService: CacheService | null = null;
 let pubSubService: PubSubService | null = null;
+let redisClient: Redis | null = null;
 
 const defaultConfig: PollerConfig = {
   enabled: true,
@@ -76,11 +79,75 @@ async function processServerSessions(
     const mediaSessions = await client.getSessions();
     const processedSessions = mediaSessions.map((s) => mapMediaSession(s, server.type));
 
-    // OPTIMIZATION: Pre-load all server users for this server to avoid N+1 queries
+    // OPTIMIZATION: Early return if no active sessions from media server
+    if (processedSessions.length === 0) {
+      // Still need to handle stopped sessions detection
+      const stoppedSessionKeys: string[] = [];
+      for (const cachedKey of cachedSessionKeys) {
+        if (cachedKey.startsWith(`${server.id}:`)) {
+          stoppedSessionKeys.push(cachedKey);
+
+          // Mark session as stopped in database
+          const sessionKey = cachedKey.replace(`${server.id}:`, '');
+          const stoppedRows = await db
+            .select()
+            .from(sessions)
+            .where(
+              and(
+                eq(sessions.serverId, server.id),
+                eq(sessions.sessionKey, sessionKey),
+                isNull(sessions.stoppedAt)
+              )
+            )
+            .limit(1);
+
+          const stoppedSession = stoppedRows[0];
+          if (stoppedSession) {
+            const stoppedAt = new Date();
+            const { durationMs, finalPausedDurationMs } = calculateStopDuration(
+              {
+                startedAt: stoppedSession.startedAt,
+                lastPausedAt: stoppedSession.lastPausedAt,
+                pausedDurationMs: stoppedSession.pausedDurationMs || 0,
+              },
+              stoppedAt
+            );
+            const watched = stoppedSession.watched || checkWatchCompletion(
+              stoppedSession.progressMs,
+              stoppedSession.totalDurationMs
+            );
+
+            await db
+              .update(sessions)
+              .set({
+                state: 'stopped',
+                stoppedAt,
+                durationMs,
+                pausedDurationMs: finalPausedDurationMs,
+                lastPausedAt: null,
+                watched,
+              })
+              .where(eq(sessions.id, stoppedSession.id));
+          }
+        }
+      }
+
+      return { success: true, newSessions: [], stoppedSessionKeys, updatedSessions: [] };
+    }
+
+    // OPTIMIZATION: Only load server users that match active sessions (not all users for server)
+    // Collect unique externalIds from current sessions
+    const sessionExternalIds = [...new Set(processedSessions.map((s) => s.externalUserId))];
+
     const serverUsersList = await db
       .select()
       .from(serverUsers)
-      .where(eq(serverUsers.serverId, server.id));
+      .where(
+        and(
+          eq(serverUsers.serverId, server.id),
+          inArray(serverUsers.externalId, sessionExternalIds)
+        )
+      );
 
     // Build server user caches: externalId -> serverUser and id -> serverUser
     const serverUserByExternalId = new Map<string, typeof serverUsersList[0]>();
@@ -240,33 +307,85 @@ async function processServerSessions(
           }
         }
 
-        // Insert new session with pause tracking fields
-        const insertedRows = await db
-          .insert(sessions)
-          .values({
+        // Use transaction to ensure session insert + rule evaluation + violation creation are atomic
+        // This prevents orphaned sessions without violations on crash
+        const recentSessions = recentSessionsMap.get(serverUserId) ?? [];
+
+        const { insertedSession, violationResults } = await db.transaction(async (tx) => {
+          // Insert new session with pause tracking fields
+          const insertedRows = await tx
+            .insert(sessions)
+            .values({
+              serverId: server.id,
+              serverUserId,
+              sessionKey: processed.sessionKey,
+              ratingKey: processed.ratingKey || null,
+              state: processed.state,
+              mediaType: processed.mediaType,
+              mediaTitle: processed.mediaTitle,
+              // Enhanced media metadata
+              grandparentTitle: processed.grandparentTitle || null,
+              seasonNumber: processed.seasonNumber || null,
+              episodeNumber: processed.episodeNumber || null,
+              year: processed.year || null,
+              thumbPath: processed.thumbPath || null,
+              startedAt: new Date(),
+              totalDurationMs: processed.totalDurationMs || null,
+              progressMs: processed.progressMs || null,
+              // Pause tracking - use Jellyfin's precise timestamp if available, otherwise infer from state
+              lastPausedAt: processed.lastPausedDate ?? (processed.state === 'paused' ? new Date() : null),
+              pausedDurationMs: 0,
+              // Session grouping
+              referenceId,
+              watched: false,
+              // Network/device info
+              ipAddress: processed.ipAddress,
+              geoCity: geo.city,
+              geoRegion: geo.region,
+              geoCountry: geo.country,
+              geoLat: geo.lat,
+              geoLon: geo.lon,
+              playerName: processed.playerName,
+              deviceId: processed.deviceId || null,
+              product: processed.product || null,
+              device: processed.device || null,
+              platform: processed.platform,
+              quality: processed.quality,
+              isTranscode: processed.isTranscode,
+              bitrate: processed.bitrate,
+            })
+            .returning();
+
+          const inserted = insertedRows[0];
+          if (!inserted) {
+            throw new Error('Failed to insert session');
+          }
+
+          // Evaluate rules within same transaction
+          const session = {
+            id: inserted.id,
             serverId: server.id,
             serverUserId,
             sessionKey: processed.sessionKey,
-            ratingKey: processed.ratingKey || null,
             state: processed.state,
             mediaType: processed.mediaType,
             mediaTitle: processed.mediaTitle,
-            // Enhanced media metadata
             grandparentTitle: processed.grandparentTitle || null,
             seasonNumber: processed.seasonNumber || null,
             episodeNumber: processed.episodeNumber || null,
             year: processed.year || null,
             thumbPath: processed.thumbPath || null,
-            startedAt: new Date(),
+            ratingKey: processed.ratingKey || null,
+            externalSessionId: null,
+            startedAt: inserted.startedAt,
+            stoppedAt: null,
+            durationMs: null,
             totalDurationMs: processed.totalDurationMs || null,
             progressMs: processed.progressMs || null,
-            // Pause tracking - use Jellyfin's precise timestamp if available, otherwise infer from state
-            lastPausedAt: processed.lastPausedDate ?? (processed.state === 'paused' ? new Date() : null),
-            pausedDurationMs: 0,
-            // Session grouping
-            referenceId,
-            watched: false,
-            // Network/device info
+            lastPausedAt: inserted.lastPausedAt,
+            pausedDurationMs: inserted.pausedDurationMs,
+            referenceId: inserted.referenceId,
+            watched: inserted.watched,
             ipAddress: processed.ipAddress,
             geoCity: geo.city,
             geoRegion: geo.region,
@@ -281,17 +400,37 @@ async function processServerSessions(
             quality: processed.quality,
             isTranscode: processed.isTranscode,
             bitrate: processed.bitrate,
-          })
-          .returning();
+          };
 
-        const inserted = insertedRows[0];
-        if (!inserted) {
-          console.error('Failed to insert session');
-          continue;
-        }
+          const ruleResults = await ruleEngine.evaluateSession(session, activeRules, recentSessions);
 
+          // Create violations within same transaction
+          const createdViolations: ViolationInsertResult[] = [];
+          for (const result of ruleResults) {
+            if (result.violated) {
+              const matchingRule = activeRules.find(
+                (r) => doesRuleApplyToUser(r, serverUserId)
+              );
+              if (matchingRule) {
+                const violationResult = await createViolationInTransaction(
+                  tx,
+                  matchingRule.id,
+                  serverUserId,
+                  inserted.id,
+                  result,
+                  matchingRule
+                );
+                createdViolations.push(violationResult);
+              }
+            }
+          }
+
+          return { insertedSession: inserted, violationResults: createdViolations };
+        });
+
+        // Build active session for cache/broadcast (outside transaction - read only)
         const activeSession: ActiveSession = {
-          id: inserted.id,
+          id: insertedSession.id,
           serverId: server.id,
           serverUserId,
           sessionKey: processed.sessionKey,
@@ -306,16 +445,16 @@ async function processServerSessions(
           thumbPath: processed.thumbPath || null,
           ratingKey: processed.ratingKey || null,
           externalSessionId: null,
-          startedAt: inserted.startedAt,
+          startedAt: insertedSession.startedAt,
           stoppedAt: null,
           durationMs: null,
           totalDurationMs: processed.totalDurationMs || null,
           progressMs: processed.progressMs || null,
           // Pause tracking
-          lastPausedAt: inserted.lastPausedAt,
-          pausedDurationMs: inserted.pausedDurationMs,
-          referenceId: inserted.referenceId,
-          watched: inserted.watched,
+          lastPausedAt: insertedSession.lastPausedAt,
+          pausedDurationMs: insertedSession.pausedDurationMs,
+          referenceId: insertedSession.referenceId,
+          watched: insertedSession.watched,
           // Network/device info
           ipAddress: processed.ipAddress,
           geoCity: geo.city,
@@ -337,60 +476,13 @@ async function processServerSessions(
 
         newSessions.push(activeSession);
 
-        // Evaluate rules for new session (using batch-loaded recent sessions)
-        const recentSessions = recentSessionsMap.get(serverUserId) ?? [];
-        const session = {
-          id: inserted.id,
-          serverId: server.id,
-          serverUserId,
-          sessionKey: processed.sessionKey,
-          state: processed.state,
-          mediaType: processed.mediaType,
-          mediaTitle: processed.mediaTitle,
-          grandparentTitle: processed.grandparentTitle || null,
-          seasonNumber: processed.seasonNumber || null,
-          episodeNumber: processed.episodeNumber || null,
-          year: processed.year || null,
-          thumbPath: processed.thumbPath || null,
-          ratingKey: processed.ratingKey || null,
-          externalSessionId: null,
-          startedAt: inserted.startedAt,
-          stoppedAt: null,
-          durationMs: null,
-          totalDurationMs: processed.totalDurationMs || null,
-          progressMs: processed.progressMs || null,
-          lastPausedAt: inserted.lastPausedAt,
-          pausedDurationMs: inserted.pausedDurationMs,
-          referenceId: inserted.referenceId,
-          watched: inserted.watched,
-          ipAddress: processed.ipAddress,
-          geoCity: geo.city,
-          geoRegion: geo.region,
-          geoCountry: geo.country,
-          geoLat: geo.lat,
-          geoLon: geo.lon,
-          playerName: processed.playerName,
-          deviceId: processed.deviceId || null,
-          product: processed.product || null,
-          device: processed.device || null,
-          platform: processed.platform,
-          quality: processed.quality,
-          isTranscode: processed.isTranscode,
-          bitrate: processed.bitrate,
-        };
-
-        const ruleResults = await ruleEngine.evaluateSession(session, activeRules, recentSessions);
-
-        // Create violations for triggered rules
-        for (const result of ruleResults) {
-          const matchingRule = activeRules.find(
-            (r) =>
-              (r.serverUserId === null || r.serverUserId === serverUserId) && result.violated
-          );
-          if (matchingRule) {
-            // createViolation handles both DB insert and WebSocket broadcast
-            await createViolation(matchingRule.id, serverUserId, inserted.id, result, matchingRule, pubSubService);
-          }
+        // Broadcast violations AFTER transaction commits (outside transaction)
+        // Wrapped in try-catch to prevent broadcast failures from crashing the poller
+        try {
+          await broadcastViolations(violationResults, insertedSession.id, pubSubService);
+        } catch (err) {
+          console.error('[Poller] Failed to broadcast violations:', err);
+          // Violations are already persisted in DB, broadcast failure is non-fatal
         }
       } else {
         // Get existing session to check for state changes
@@ -649,19 +741,38 @@ async function pollServers(): Promise<void> {
       allUpdatedSessions.push(...updatedSessions);
     }
 
-    // Update cache with current active sessions
-    if (cacheService) {
+    // Update cache with current active sessions using atomic batch update
+    if (cacheService && redisClient) {
       const currentActiveSessions = [...allNewSessions, ...allUpdatedSessions];
-      await cacheService.setActiveSessions(currentActiveSessions);
 
-      // Update individual session cache
-      for (const session of allNewSessions) {
-        await cacheService.setSessionById(session.id, session);
-        await cacheService.addUserSession(session.serverUserId, session.id);
+      // Build atomic cache updates for all sessions
+      const cacheUpdates: Array<{ key: string; value: unknown; ttl: number }> = [
+        // Main active sessions list
+        {
+          key: REDIS_KEYS.ACTIVE_SESSIONS,
+          value: currentActiveSessions,
+          ttl: CACHE_TTL.ACTIVE_SESSIONS,
+        },
+      ];
+
+      // Add individual session caches
+      for (const session of currentActiveSessions) {
+        cacheUpdates.push({
+          key: REDIS_KEYS.SESSION_BY_ID(session.id),
+          value: session,
+          ttl: CACHE_TTL.ACTIVE_SESSIONS,
+        });
       }
 
-      for (const session of allUpdatedSessions) {
-        await cacheService.setSessionById(session.id, session);
+      // Atomic update all session caches at once
+      await atomicMultiUpdate(redisClient, cacheUpdates);
+
+      // Invalidate dashboard stats (will be recalculated)
+      await redisClient.del(REDIS_KEYS.DASHBOARD_STATS);
+
+      // Update user session sets (uses Redis SET data structure, separate from atomic batch)
+      for (const session of allNewSessions) {
+        await cacheService.addUserSession(session.serverUserId, session.id);
       }
 
       // Remove stopped sessions from cache
@@ -727,11 +838,12 @@ async function pollServers(): Promise<void> {
 // ============================================================================
 
 /**
- * Initialize the poller with cache services
+ * Initialize the poller with cache services and Redis client
  */
-export function initializePoller(cache: CacheService, pubSub: PubSubService): void {
+export function initializePoller(cache: CacheService, pubSub: PubSubService, redis: Redis): void {
   cacheService = cache;
   pubSubService = pubSub;
+  redisClient = redis;
 }
 
 /**

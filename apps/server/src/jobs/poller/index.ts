@@ -13,8 +13,8 @@
  * @example
  * import { initializePoller, startPoller, stopPoller } from './jobs/poller';
  *
- * // Initialize with cache services
- * initializePoller(cacheService, pubSubService);
+ * // Initialize with cache services and Redis client
+ * initializePoller(cacheService, pubSubService, redis);
  *
  * // Start polling
  * startPoller({ enabled: true, intervalMs: 15000 });
