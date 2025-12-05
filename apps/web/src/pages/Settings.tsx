@@ -35,17 +35,18 @@ import {
   Loader2,
   Smartphone,
   Copy,
-  RotateCcw,
   LogOut,
   Globe,
   AlertTriangle,
   Plus,
+  Clock,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { api, tokenStorage } from '@/lib/api';
 import { useSocket } from '@/hooks/useSocket';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 import type { Server, Settings as SettingsType, TautulliImportProgress, MobileSession, MobileQRPayload } from '@tracearr/shared';
 import {
   useSettings,
@@ -56,7 +57,8 @@ import {
   useMobileConfig,
   useEnableMobile,
   useDisableMobile,
-  useRotateMobileToken,
+  useGeneratePairToken,
+  useRevokeSession,
   useRevokeMobileSessions,
 } from '@/hooks/queries';
 
@@ -884,44 +886,97 @@ function MobileSettings() {
   const { data: settings } = useSettings();
   const enableMobile = useEnableMobile();
   const disableMobile = useDisableMobile();
-  const rotateMobileToken = useRotateMobileToken();
+  const generatePairToken = useGeneratePairToken();
   const revokeMobileSessions = useRevokeMobileSessions();
+  const { toast } = useToast();
 
   const [showDisableConfirm, setShowDisableConfirm] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
+  const [showQRDialog, setShowQRDialog] = useState(false);
+  const [pairToken, setPairToken] = useState<{ token: string; expiresAt: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+  // Timer for token expiration
+  useEffect(() => {
+    if (!pairToken?.expiresAt) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const expiresAt = new Date(pairToken.expiresAt).getTime();
+      const remaining = Math.max(0, Math.floor((expiresAt - now) / 1000));
+      setTimeLeft(remaining);
+
+      if (remaining === 0) {
+        setPairToken(null);
+        setShowQRDialog(false);
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [pairToken]);
+
+  const handleAddDevice = async () => {
+    try {
+      const token = await generatePairToken.mutateAsync();
+      setPairToken(token);
+      setShowQRDialog(true);
+    } catch {
+      // Error handled by mutation
+    }
+  };
 
   const handleCopyToken = async () => {
-    if (config?.token) {
-      await navigator.clipboard.writeText(config.token);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    if (pairToken?.token) {
+      try {
+        await navigator.clipboard.writeText(pairToken.token);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        toast({
+          title: 'Token Copied',
+          description: 'Pair token copied to clipboard.',
+        });
+      } catch {
+        toast({
+          title: 'Failed to Copy',
+          description: 'Could not copy token to clipboard.',
+          variant: 'destructive',
+        });
+      }
     }
   };
 
   const getServerUrl = (): string => {
-    // Prefer configured external URL if set
     if (settings?.externalUrl) {
       return settings.externalUrl;
     }
-    // Fallback: derive from current browser location
     let serverUrl = window.location.origin;
     if (import.meta.env.DEV) {
-      // In dev, Vite runs on :5173 but mobile app needs the backend on :3000
       serverUrl = serverUrl.replace(':5173', ':3000');
     }
     return serverUrl;
   };
 
   const getQRData = (): string => {
-    if (!config?.token) return '';
+    if (!pairToken?.token) return '';
     const payload: MobileQRPayload = {
       url: getServerUrl(),
-      token: config.token,
-      name: config.serverName,
+      token: pairToken.token,
+      name: config?.serverName ?? 'Tracearr',
     };
     const encoded = btoa(JSON.stringify(payload));
     return `tracearr://pair?data=${encoded}`;
+  };
+
+  const formatTimeLeft = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   if (isLoading) {
@@ -937,6 +992,9 @@ function MobileSettings() {
       </Card>
     );
   }
+
+  const deviceCount = config?.sessions?.length ?? 0;
+  const maxDevices = config?.maxDevices ?? 5;
 
   return (
     <div className="space-y-6">
@@ -975,87 +1033,26 @@ function MobileSettings() {
             </div>
           ) : (
             <>
-              {config.token && (
-                <div className="space-y-4">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="rounded-lg border bg-white p-4">
-                      <QRCodeSVG
-                        value={getQRData()}
-                        size={200}
-                        level="M"
-                        marginSize={0}
-                      />
-                    </div>
-                    <p className="text-sm text-muted-foreground text-center max-w-sm">
-                      Scan this QR code with the Tracearr mobile app, or enter the token manually
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Mobile Access Token</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        readOnly
-                        value={config.token}
-                        className="font-mono text-xs"
-                      />
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={handleCopyToken}
-                        title="Copy token"
-                      >
-                        {copied ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-600" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Keep this token secure. Anyone with this token can access your server.
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg bg-muted/50 p-3">
-                    <p className="text-xs text-muted-foreground">
-                      <strong>Server URL in QR:</strong>{' '}
-                      <code className="rounded bg-background px-1">{getServerUrl()}</code>
-                      {!settings?.externalUrl && (
-                        <span className="block mt-1">
-                          Configure an External URL in{' '}
-                          <a href="/settings/network" className="text-primary hover:underline">
-                            Network settings
-                          </a>{' '}
-                          for remote access.
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {!config.token && (
-                <div className="rounded-lg bg-muted/50 p-4">
+              <div className="flex items-center justify-between">
+                <div>
                   <p className="text-sm text-muted-foreground">
-                    Mobile access is enabled. Use the Rotate Token button to generate a new QR code.
+                    {deviceCount} of {maxDevices} devices connected
                   </p>
                 </div>
-              )}
-
-              <div className="flex flex-wrap gap-2">
                 <Button
-                  variant="outline"
-                  onClick={() => rotateMobileToken.mutate()}
-                  disabled={rotateMobileToken.isPending}
+                  onClick={handleAddDevice}
+                  disabled={deviceCount >= maxDevices || generatePairToken.isPending}
                 >
-                  {rotateMobileToken.isPending ? (
+                  {generatePairToken.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    <RotateCcw className="mr-2 h-4 w-4" />
+                    <Plus className="mr-2 h-4 w-4" />
                   )}
-                  Rotate Token
+                  Add Device
                 </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   onClick={() => setShowDisableConfirm(true)}
@@ -1098,6 +1095,77 @@ function MobileSettings() {
         </Card>
       )}
 
+      {/* QR Code Dialog */}
+      <Dialog open={showQRDialog} onOpenChange={(open) => {
+        setShowQRDialog(open);
+        if (!open) setPairToken(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pair New Device</DialogTitle>
+            <DialogDescription>
+              Scan the QR code with the Tracearr mobile app to pair your device.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {pairToken && (
+              <>
+                <div className="flex flex-col items-center gap-4">
+                  <div className="rounded-lg border bg-white p-4">
+                    <QRCodeSVG
+                      value={getQRData()}
+                      size={200}
+                      level="M"
+                      marginSize={0}
+                    />
+                  </div>
+                  {timeLeft !== null && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      <span>Expires in {formatTimeLeft(timeLeft)}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>One-Time Pair Token</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      readOnly
+                      value={pairToken.token}
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleCopyToken}
+                      title="Copy token"
+                    >
+                      {copied ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    This token expires in 5 minutes and can only be used once.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => {
+              setShowQRDialog(false);
+              setPairToken(null);
+            }}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Disable Confirmation Dialog */}
       <Dialog open={showDisableConfirm} onOpenChange={setShowDisableConfirm}>
         <DialogContent>
@@ -1132,8 +1200,8 @@ function MobileSettings() {
           <DialogHeader>
             <DialogTitle>Revoke All Sessions</DialogTitle>
             <DialogDescription>
-              Are you sure you want to disconnect all mobile devices? They will need to scan the
-              QR code again to reconnect.
+              Are you sure you want to disconnect all mobile devices? They will need to pair
+              with a new token to reconnect.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1158,28 +1226,67 @@ function MobileSettings() {
 }
 
 function MobileSessionCard({ session }: { session: MobileSession }) {
+  const revokeSession = useRevokeSession();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   return (
-    <div className="flex items-center justify-between rounded-lg border p-4">
-      <div className="flex items-center gap-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-          <Smartphone className="h-5 w-5" />
-        </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold">{session.deviceName}</h3>
-            <span className="rounded bg-muted px-2 py-0.5 text-xs capitalize">
-              {session.platform}
-            </span>
+    <>
+      <div className="flex items-center justify-between rounded-lg border p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+            <Smartphone className="h-5 w-5" />
           </div>
-          <p className="text-sm text-muted-foreground">
-            Last seen {formatDistanceToNow(new Date(session.lastSeenAt), { addSuffix: true })}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Connected {format(new Date(session.createdAt), 'MMM d, yyyy')}
-          </p>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">{session.deviceName}</h3>
+              <span className="rounded bg-muted px-2 py-0.5 text-xs capitalize">
+                {session.platform}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Last seen {formatDistanceToNow(new Date(session.lastSeenAt), { addSuffix: true })}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Connected {format(new Date(session.createdAt), 'MMM d, yyyy')}
+            </p>
+          </div>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowDeleteConfirm(true)}
+        >
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
       </div>
-    </div>
+
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Device</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove {session.deviceName}? This device will need to pair
+              again to reconnect.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                revokeSession.mutate(session.id);
+                setShowDeleteConfirm(false);
+              }}
+              disabled={revokeSession.isPending}
+            >
+              {revokeSession.isPending ? 'Removing...' : 'Remove'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

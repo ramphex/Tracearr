@@ -524,7 +524,10 @@ class ApiClient {
     get: () => this.request<MobileConfig>('/mobile'),
     enable: () => this.request<MobileConfig>('/mobile/enable', { method: 'POST', body: '{}' }),
     disable: () => this.request<{ success: boolean }>('/mobile/disable', { method: 'POST', body: '{}' }),
-    rotate: () => this.request<MobileConfig>('/mobile/rotate', { method: 'POST', body: '{}' }),
+    generatePairToken: () =>
+      this.request<{ token: string; expiresAt: string }>('/mobile/pair-token', { method: 'POST', body: '{}' }),
+    revokeSession: (id: string) =>
+      this.request<{ success: boolean }>(`/mobile/sessions/${id}`, { method: 'DELETE' }),
     revokeSessions: () =>
       this.request<{ success: boolean; revokedCount: number }>('/mobile/sessions', { method: 'DELETE' }),
   };

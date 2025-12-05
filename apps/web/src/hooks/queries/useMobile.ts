@@ -60,22 +60,45 @@ export function useDisableMobile() {
   });
 }
 
-export function useRotateMobileToken() {
+export function useGeneratePairToken() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: api.mobile.rotate,
-    onSuccess: (data) => {
-      queryClient.setQueryData<MobileConfig>(['mobile', 'config'], data);
+    mutationFn: api.mobile.generatePairToken,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['mobile', 'config'] });
       toast({
-        title: 'Token Rotated',
-        description: 'All previous mobile sessions have been revoked. Scan the new QR code to reconnect.',
+        title: 'Pair Token Generated',
+        description: 'Scan the QR code with your mobile device to pair.',
       });
     },
     onError: (err) => {
       toast({
-        title: 'Failed to Rotate Token',
+        title: 'Failed to Generate Pair Token',
+        description: err.message,
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+export function useRevokeSession() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (sessionId: string) => api.mobile.revokeSession(sessionId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['mobile', 'config'] });
+      toast({
+        title: 'Device Removed',
+        description: 'The device has been disconnected.',
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: 'Failed to Remove Device',
         description: err.message,
         variant: 'destructive',
       });

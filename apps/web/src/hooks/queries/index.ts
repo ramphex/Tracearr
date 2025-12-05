@@ -60,6 +60,7 @@ export {
   useMobileConfig,
   useEnableMobile,
   useDisableMobile,
-  useRotateMobileToken,
+  useGeneratePairToken,
+  useRevokeSession,
   useRevokeMobileSessions,
 } from './useMobile';
