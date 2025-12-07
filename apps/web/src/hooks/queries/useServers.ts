@@ -139,11 +139,8 @@ export function useServerStatistics(serverId: string | undefined, enabled: boole
     queryFn: async () => {
       if (!serverId) throw new Error('Server ID required');
       const response = await api.servers.statistics(serverId);
-      console.log('[useServerStatistics] API response:', response);
-      console.log('[useServerStatistics] response.data length:', response.data?.length);
       // Merge with accumulated data
       const mergedData = mergeData(response.data);
-      console.log('[useServerStatistics] merged data length:', mergedData.length);
       return {
         ...response,
         data: mergedData,

@@ -52,7 +52,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     // Get JWT token for authentication
     const token = tokenStorage.getAccessToken();
     if (!token) {
-      console.log('[Socket] No token available, skipping connection');
       return;
     }
 
@@ -71,12 +70,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
     newSocket.on('connect', () => {
       setIsConnected(true);
-      console.log('[Socket] Connected');
     });
 
     newSocket.on('disconnect', () => {
       setIsConnected(false);
-      console.log('[Socket] Disconnected');
     });
 
     newSocket.on('connect_error', (error) => {
