@@ -119,6 +119,9 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: .
 
+      - name: Build shared package
+        run: pnpm --filter @tracearr/shared build
+
       - name: Setup Expo
         uses: expo/expo-github-action@v8
         with:
@@ -213,6 +216,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: .
+
+      - name: Build shared package
+        run: pnpm --filter @tracearr/shared build
 
       - name: Setup Expo
         uses: expo/expo-github-action@v8
