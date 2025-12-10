@@ -140,18 +140,62 @@ export const serverIdFilterSchema = z.object({
   serverId: uuidSchema.optional(),
 });
 
-export const statsQuerySchema = z.object({
-  period: z.enum(['day', 'week', 'month', 'year']).default('week'),
-  serverId: uuidSchema.optional(),
-});
+export const statsQuerySchema = z
+  .object({
+    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('week'),
+    startDate: z.iso.datetime().optional(),
+    endDate: z.iso.datetime().optional(),
+    serverId: uuidSchema.optional(),
+  })
+  .refine(
+    (data) => {
+      // Custom period requires both dates
+      if (data.period === 'custom') {
+        return data.startDate && data.endDate;
+      }
+      return true;
+    },
+    { message: 'Custom period requires startDate and endDate' }
+  )
+  .refine(
+    (data) => {
+      // If dates provided, start must be before end
+      if (data.startDate && data.endDate) {
+        return new Date(data.startDate) < new Date(data.endDate);
+      }
+      return true;
+    },
+    { message: 'startDate must be before endDate' }
+  );
 
-// Location stats with full filtering
-export const locationStatsQuerySchema = z.object({
-  days: z.coerce.number().int().min(1).max(365).default(30),
-  serverUserId: uuidSchema.optional(),
-  serverId: uuidSchema.optional(),
-  mediaType: z.enum(['movie', 'episode', 'track']).optional(),
-});
+// Location stats with full filtering - uses same period system as statsQuerySchema
+export const locationStatsQuerySchema = z
+  .object({
+    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('month'),
+    startDate: z.iso.datetime().optional(),
+    endDate: z.iso.datetime().optional(),
+    serverUserId: uuidSchema.optional(),
+    serverId: uuidSchema.optional(),
+    mediaType: z.enum(['movie', 'episode', 'track']).optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.period === 'custom') {
+        return data.startDate && data.endDate;
+      }
+      return true;
+    },
+    { message: 'Custom period requires startDate and endDate' }
+  )
+  .refine(
+    (data) => {
+      if (data.startDate && data.endDate) {
+        return new Date(data.startDate) < new Date(data.endDate);
+      }
+      return true;
+    },
+    { message: 'startDate must be before endDate' }
+  );
 
 // Settings schemas
 export const updateSettingsSchema = z.object({
