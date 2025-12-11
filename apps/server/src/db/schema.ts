@@ -217,6 +217,13 @@ export const sessions = pgTable(
     index('sessions_device_idx').on(table.serverUserId, table.deviceId),
     index('sessions_reference_idx').on(table.referenceId), // For session grouping queries
     index('sessions_server_user_rating_idx').on(table.serverUserId, table.ratingKey), // For resume detection
+    // Index for Tautulli import deduplication fallback (when externalSessionId not found)
+    index('sessions_dedup_fallback_idx').on(
+      table.serverId,
+      table.serverUserId,
+      table.ratingKey,
+      table.startedAt
+    ),
     // Indexes for stats queries
     index('sessions_geo_idx').on(table.geoLat, table.geoLon), // For /stats/locations basic geo lookup
     index('sessions_geo_time_idx').on(table.startedAt, table.geoLat, table.geoLon), // For time-filtered map queries
