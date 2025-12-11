@@ -136,7 +136,7 @@ async function buildApp(options: { trustProxy?: boolean } = {}) {
     originAgentCluster: false,
   });
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN ?? true,
+    origin: process.env.CORS_ORIGIN || true,
     credentials: true,
   });
   await app.register(rateLimit, {

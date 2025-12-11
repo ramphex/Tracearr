@@ -34,7 +34,7 @@ function verifyToken(token: string): AuthUser {
 export function initializeWebSocket(httpServer: HttpServer): TypedServer {
   io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN ?? true,
+      origin: process.env.CORS_ORIGIN || true,
       credentials: true,
     },
     pingTimeout: 60000,
