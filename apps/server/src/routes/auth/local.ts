@@ -33,6 +33,7 @@ const plexLoginSchema = z.object({
   forwardUrl: z.url().optional(),
 });
 
+// Note: Jellyfin login is handled at /auth/jellyfin/login, not here
 const loginSchema = z.discriminatedUnion('type', [localLoginSchema, plexLoginSchema]);
 
 export const localRoutes: FastifyPluginAsync = async (app) => {
@@ -118,14 +119,19 @@ export const localRoutes: FastifyPluginAsync = async (app) => {
       return generateTokens(app, user.id, user.username, user.role);
     }
 
-    // Plex OAuth - initiate flow
-    try {
-      const forwardUrl = body.data.type === 'plex' ? body.data.forwardUrl : undefined;
-      const { pinId, authUrl } = await PlexClient.initiateOAuth(forwardUrl);
-      return { pinId, authUrl };
-    } catch (error) {
-      app.log.error({ error }, 'Failed to initiate Plex OAuth');
-      return reply.internalServerError('Failed to initiate Plex authentication');
+    if (type === 'plex') {
+      // Plex OAuth - initiate flow
+      try {
+        const forwardUrl = body.data.forwardUrl;
+        const { pinId, authUrl } = await PlexClient.initiateOAuth(forwardUrl);
+        return { pinId, authUrl };
+      } catch (error) {
+        app.log.error({ error }, 'Failed to initiate Plex OAuth');
+        return reply.internalServerError('Failed to initiate Plex authentication');
+      }
     }
+
+    // This should not be reached due to discriminated union, but handle gracefully
+    return reply.badRequest('Invalid login type');
   });
 };
