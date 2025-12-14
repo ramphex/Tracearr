@@ -46,23 +46,26 @@ Unlike monitoring tools that just show you data, Tracearr is built to detect acc
 
 Tracearr v1 is focused on **detection and alerting**. Automated enforcement—killing streams, suspending accounts—is coming in future versions. For now, you see the problems; you decide the action.
 
-## Why Not Tautulli?
+## Why Not Tautulli or Jellystat?
 
-[Tautulli](https://github.com/Tautulli/Tautulli) is great monitoring software. We use Highcharts for graphs too. But Tautulli shows you what happened—it doesn't tell you when something's wrong.
+[Tautulli](https://github.com/Tautulli/Tautulli) and [Jellystat](https://github.com/CyferShepard/Jellystat) are great monitoring tools. We use Highcharts for graphs too. But they show you what happened—they don't tell you when something's wrong.
 
-| | Tautulli | Tracearr |
-|---|---|---|
-| Watch history | ✅ | ✅ |
-| Statistics & graphs | ✅ | ✅ |
-| Account sharing detection | ❌ | ✅ |
-| Impossible travel alerts | ❌ | ✅ |
-| Trust scoring | ❌ | ✅ |
-| Jellyfin support | ❌ | ✅ |
-| Emby support | ❌ | ✅ |
-| Multi-server dashboard | ❌ | ✅ |
-| Import from Tautulli | — | ✅ |
+| | Tautulli | Jellystat | Tracearr |
+|---|---|---|---|
+| Watch history | ✅ | ✅ | ✅ |
+| Statistics & graphs | ✅ | ✅ | ✅ |
+| Session monitoring | ✅ | ✅ | ✅ |
+| Account sharing detection | ❌ | ❌ | ✅ |
+| Impossible travel alerts | ❌ | ❌ | ✅ |
+| Trust scoring | ❌ | ❌ | ✅ |
+| Plex support | ✅ | ❌ | ✅ |
+| Jellyfin support | ❌ | ✅ | ✅ |
+| Emby support | ❌ | ✅ | ✅ |
+| Multi-server dashboard | ❌ | ❌ | ✅ |
+| IP geolocation | ✅ | ✅ | ✅ |
+| Import from Tautulli | — | ❌ | ✅ |
 
-If you just want to see stats, Tautulli works fine. If you're tired of your brother's roommate's cousin streaming on your dime, that's what Tracearr is for.
+Tautulli and Jellystat are platform-locked equivalents—Plex-only vs Jellyfin/Emby-only. If you just want stats, they work fine. If you're tired of your brother's roommate's cousin streaming on your dime, that's what Tracearr is for.
 
 ## Quick Start
 
