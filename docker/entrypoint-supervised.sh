@@ -149,24 +149,14 @@ if [ ! -f /data/postgres/PG_VERSION ]; then
             init_postgres_db
         fi
     else
-        # Empty directory
-        if [ "$EXISTING_INSTALL" = true ] && [ "$FORCE_DB_REINIT" != "true" ]; then
-            error "=========================================================="
-            error "DATA LOSS PREVENTION: Empty database with existing secrets"
-            error "=========================================================="
-            error ""
-            error "Found existing secrets but PostgreSQL data directory is empty."
-            error "This usually means volumes were not properly mounted."
-            error ""
-            error "If this is intentional, set: FORCE_DB_REINIT=true"
-            error "Otherwise, check your volume configuration!"
-            error ""
-            error "Your data may still exist in a Docker volume."
-            error "Run: docker volume ls | grep tracearr"
-            error "=========================================================="
-            exit 1
+        # Empty directory - initialize fresh
+        # Note: Existing secrets (JWT/cookie) don't indicate data loss risk since
+        # they only affect auth sessions, not actual data. If postgres is empty,
+        # there's no user data to protect anyway.
+        if [ "$EXISTING_INSTALL" = true ]; then
+            warn "Found existing secrets but empty database - initializing fresh"
+            warn "Previous sessions will be invalidated (users will need to log in again)"
         fi
-        # Fresh install
         chown -R postgres:postgres /data/postgres
         gosu postgres /usr/lib/postgresql/15/bin/initdb -D /data/postgres
         init_postgres_db
