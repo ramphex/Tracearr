@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Select,
   SelectContent,
@@ -521,29 +522,15 @@ export function Rules() {
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirmId} onOpenChange={() => { setDeleteConfirmId(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Rule</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this rule? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeleteConfirmId(null); }}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}
-              disabled={deleteRule.isPending}
-            >
-              {deleteRule.isPending ? 'Deleting...' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        onOpenChange={() => { setDeleteConfirmId(null); }}
+        title="Delete Rule"
+        description="Are you sure you want to delete this rule? This action cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => deleteConfirmId && handleDelete(deleteConfirmId)}
+        isLoading={deleteRule.isPending}
+      />
     </div>
   );
 }

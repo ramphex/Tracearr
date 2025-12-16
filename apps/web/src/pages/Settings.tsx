@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Select,
   SelectContent,
@@ -49,7 +50,7 @@ import { api, tokenStorage } from '@/lib/api';
 import type { PlexDiscoveredServer } from '@/lib/api';
 import { useSocket } from '@/hooks/useSocket';
 import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { PlexServerSelector } from '@/components/auth/PlexServerSelector';
 import { NotificationRoutingMatrix } from '@/components/settings/NotificationRoutingMatrix';
 import type { Server, Settings as SettingsType, TautulliImportProgress, MobileSession, MobileQRPayload } from '@tracearr/shared';
@@ -190,7 +191,6 @@ function ServerSettings() {
   const deleteServer = useDeleteServer();
   const syncServer = useSyncServer();
   const { refetch: refetchUser, user } = useAuth();
-  const { toast } = useToast();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [serverType, setServerType] = useState<'plex' | 'jellyfin' | 'emby'>('plex');
@@ -289,10 +289,7 @@ function ServerSettings() {
         clientIdentifier,
       });
 
-      toast({
-        title: 'Server Added',
-        description: `${name} has been connected successfully`,
-      });
+      toast.success('Server Added', { description: `${name} has been connected successfully` });
 
       // Refresh server list and user data
       await refetch();
@@ -577,30 +574,15 @@ function ServerSettings() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteId} onOpenChange={() => { setDeleteId(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Server</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to remove this server? All associated session data will be
-              retained, but you won't be able to monitor new sessions from this server.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeleteId(null); }}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleteServer.isPending}
-            >
-              {deleteServer.isPending ? 'Removing...' : 'Remove'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={() => { setDeleteId(null); }}
+        title="Remove Server"
+        description="Are you sure you want to remove this server? All associated session data will be retained, but you won't be able to monitor new sessions from this server."
+        confirmLabel="Remove"
+        onConfirm={handleDelete}
+        isLoading={deleteServer.isPending}
+      />
     </>
   );
 }
@@ -1102,7 +1084,6 @@ function MobileSettings() {
   const disableMobile = useDisableMobile();
   const generatePairToken = useGeneratePairToken();
   const revokeMobileSessions = useRevokeMobileSessions();
-  const { toast } = useToast();
 
   const [showDisableConfirm, setShowDisableConfirm] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
@@ -1151,16 +1132,9 @@ function MobileSettings() {
         await navigator.clipboard.writeText(pairToken.token);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-        toast({
-          title: 'Token Copied',
-          description: 'Pair token copied to clipboard.',
-        });
+        toast.success('Token Copied', { description: 'Pair token copied to clipboard.' });
       } catch {
-        toast({
-          title: 'Failed to Copy',
-          description: 'Could not copy token to clipboard.',
-          variant: 'destructive',
-        });
+        toast.error('Failed to Copy', { description: 'Could not copy token to clipboard.' });
       }
     }
   };
@@ -1381,60 +1355,31 @@ function MobileSettings() {
       </Dialog>
 
       {/* Disable Confirmation Dialog */}
-      <Dialog open={showDisableConfirm} onOpenChange={setShowDisableConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Disable Mobile Access</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to disable mobile access? All connected devices will be
-              disconnected and will need to be re-paired when you re-enable.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDisableConfirm(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                disableMobile.mutate();
-                setShowDisableConfirm(false);
-              }}
-              disabled={disableMobile.isPending}
-            >
-              {disableMobile.isPending ? 'Disabling...' : 'Disable'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={showDisableConfirm}
+        onOpenChange={setShowDisableConfirm}
+        title="Disable Mobile Access"
+        description="Are you sure you want to disable mobile access? All connected devices will be disconnected and will need to be re-paired when you re-enable."
+        confirmLabel="Disable"
+        onConfirm={() => {
+          disableMobile.mutate();
+          setShowDisableConfirm(false);
+        }}
+        isLoading={disableMobile.isPending}
+      />
 
-      {/* Revoke All Sessions Confirmation */}
-      <Dialog open={showRevokeConfirm} onOpenChange={setShowRevokeConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Revoke All Sessions</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to disconnect all mobile devices? They will need to pair
-              with a new token to reconnect.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRevokeConfirm(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                revokeMobileSessions.mutate();
-                setShowRevokeConfirm(false);
-              }}
-              disabled={revokeMobileSessions.isPending}
-            >
-              {revokeMobileSessions.isPending ? 'Revoking...' : 'Revoke All'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={showRevokeConfirm}
+        onOpenChange={setShowRevokeConfirm}
+        title="Revoke All Sessions"
+        description="Are you sure you want to disconnect all mobile devices? They will need to pair with a new token to reconnect."
+        confirmLabel="Revoke All"
+        onConfirm={() => {
+          revokeMobileSessions.mutate();
+          setShowRevokeConfirm(false);
+        }}
+        isLoading={revokeMobileSessions.isPending}
+      />
     </div>
   );
 }
@@ -1474,32 +1419,18 @@ function MobileSessionCard({ session }: { session: MobileSession }) {
         </Button>
       </div>
 
-      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Device</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to remove {session.deviceName}? This device will need to pair
-              again to reconnect.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                revokeSession.mutate(session.id);
-                setShowDeleteConfirm(false);
-              }}
-              disabled={revokeSession.isPending}
-            >
-              {revokeSession.isPending ? 'Removing...' : 'Remove'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title="Remove Device"
+        description={`Are you sure you want to remove ${session.deviceName}? This device will need to pair again to reconnect.`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          revokeSession.mutate(session.id);
+          setShowDeleteConfirm(false);
+        }}
+        isLoading={revokeSession.isPending}
+      />
     </>
   );
 }
