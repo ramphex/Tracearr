@@ -631,8 +631,8 @@ export class TautulliService {
           // Check if exists in database (per-page query result)
           const existingByRef = sessionByExternalId.get(referenceIdStr);
           if (existingByRef) {
-            // Calculate new values
-            const newStoppedAt = new Date(record.stopped * 1000);
+            // Calculate new values - use started + duration for accurate concurrent calculations
+            const newStoppedAt = new Date((record.started + record.duration) * 1000);
             const newDurationMs = record.duration * 1000;
             const newPausedDurationMs = record.paused_counter * 1000;
             const newWatched = record.watched_status === 1;
@@ -676,8 +676,8 @@ export class TautulliService {
             const existingByTime = sessionByTimeKey.get(timeKey);
 
             if (existingByTime) {
-              // Calculate new values
-              const newStoppedAt = new Date(record.stopped * 1000);
+              // Calculate new values - use started + duration for accurate concurrent calculations
+              const newStoppedAt = new Date((record.started + record.duration) * 1000);
               const newDurationMs = record.duration * 1000;
               const newPausedDurationMs = record.paused_counter * 1000;
               const newWatched = record.watched_status === 1;
@@ -754,7 +754,9 @@ export class TautulliService {
             thumbPath: record.thumb || null,
             startedAt,
             lastSeenAt: startedAt,
-            stoppedAt: new Date(record.stopped * 1000),
+            // Use started + duration as effective stop time for accurate concurrent stream calculations
+            // Tautulli's `stopped` represents wall-clock time which can span days/months if user paused/resumed
+            stoppedAt: new Date((record.started + record.duration) * 1000),
             durationMs: record.duration * 1000,
             totalDurationMs: null,
             progressMs: null,
