@@ -312,8 +312,8 @@ export const qualityRoutes: FastifyPluginAsync = async (app) => {
           COALESCE(MAX(direct_concurrent), 0)::int AS direct,
           COALESCE(MAX(transcode_concurrent), 0)::int AS transcode
         FROM running_counts
-        GROUP BY date_trunc('hour', event_time AT TIME ZONE ${tz})
-        ORDER BY hour
+        GROUP BY 1
+        ORDER BY 1
       `);
 
       const hourlyData = (result.rows as {

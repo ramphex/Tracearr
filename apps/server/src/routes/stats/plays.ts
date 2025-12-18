@@ -79,8 +79,8 @@ export const playsRoutes: FastifyPluginAsync = async (app) => {
         ${baseWhere}
         ${period === 'custom' ? sql`AND started_at < ${dateRange.end}` : sql``}
         ${serverFilter}
-        GROUP BY date_trunc('day', started_at AT TIME ZONE ${tz})
-        ORDER BY date_trunc('day', started_at AT TIME ZONE ${tz})
+        GROUP BY 1
+        ORDER BY 1
       `);
 
       return { data: result.rows as { date: string; count: number }[] };
@@ -130,8 +130,8 @@ export const playsRoutes: FastifyPluginAsync = async (app) => {
         ${baseWhere}
         ${period === 'custom' ? sql`AND started_at < ${dateRange.end}` : sql``}
         ${serverFilter}
-        GROUP BY EXTRACT(DOW FROM started_at AT TIME ZONE ${tz})
-        ORDER BY day
+        GROUP BY 1
+        ORDER BY 1
       `);
 
       const dayStats = result.rows as { day: number; count: number }[];
@@ -190,8 +190,8 @@ export const playsRoutes: FastifyPluginAsync = async (app) => {
         ${baseWhere}
         ${period === 'custom' ? sql`AND started_at < ${dateRange.end}` : sql``}
         ${serverFilter}
-        GROUP BY EXTRACT(HOUR FROM started_at AT TIME ZONE ${tz})
-        ORDER BY hour
+        GROUP BY 1
+        ORDER BY 1
       `);
 
       const hourStats = result.rows as { hour: number; count: number }[];
