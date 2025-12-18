@@ -71,7 +71,7 @@ describe('Plex Session Parser', () => {
       expect(session.playback.progressPercent).toBe(40);
       expect(session.player.name).toBe("John's iPhone");
       expect(session.player.deviceId).toBe('device-uuid-123');
-      expect(session.network.ipAddress).toBe('203.0.113.50'); // Prefers public IP
+      expect(session.network.ipAddress).toBe('192.168.1.100'); // Uses local IP when local=true
       expect(session.network.isLocal).toBe(true);
       expect(session.quality.bitrate).toBe(8000);
       expect(session.quality.isTranscode).toBe(false);
@@ -151,6 +151,36 @@ describe('Plex Session Parser', () => {
 
       const session = parseSession(rawSession);
       expect(session.network.ipAddress).toBe('192.168.1.100');
+    });
+
+    it('should use public IP for remote streams', () => {
+      const rawSession = {
+        sessionKey: 'remote',
+        Player: {
+          address: '192.168.1.100',
+          remotePublicAddress: '203.0.113.50',
+          local: false, // Remote stream
+        },
+      };
+
+      const session = parseSession(rawSession);
+      expect(session.network.ipAddress).toBe('203.0.113.50'); // Prefers public IP for remote
+      expect(session.network.isLocal).toBe(false);
+    });
+
+    it('should use local IP for local streams even if public IP available', () => {
+      const rawSession = {
+        sessionKey: 'local-with-public',
+        Player: {
+          address: '192.168.1.100',
+          remotePublicAddress: '203.0.113.50',
+          local: true, // Local stream
+        },
+      };
+
+      const session = parseSession(rawSession);
+      expect(session.network.ipAddress).toBe('192.168.1.100'); // Uses local IP for local streams
+      expect(session.network.isLocal).toBe(true);
     });
   });
 

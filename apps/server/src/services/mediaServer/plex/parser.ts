@@ -143,8 +143,11 @@ export function parseSession(item: Record<string, unknown>): MediaSession {
       platform: parseOptionalString(player.platform),
     },
     network: {
-      // Prefer remote public IP for geo, fall back to local IP
-      ipAddress: parseString(player.remotePublicAddress) || parseString(player.address),
+      // For local streams, use local address so GeoIP correctly identifies as "Local"
+      // For remote streams, prefer public IP for accurate geo-location
+      ipAddress: parseBoolean(player.local)
+        ? parseString(player.address)
+        : parseString(player.remotePublicAddress) || parseString(player.address),
       isLocal: parseBoolean(player.local),
     },
     quality: {
