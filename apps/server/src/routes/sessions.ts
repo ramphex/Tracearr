@@ -318,22 +318,22 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     const {
       cursor,
       pageSize = 50,
-      serverUserId,
+      serverUserIds,
       serverId,
       state,
-      mediaType,
+      mediaTypes,
       startDate,
       endDate,
       search,
-      platform,
+      platforms,
       product,
       device,
       playerName,
       ipAddress,
-      geoCountry,
+      geoCountries,
       geoCity,
       geoRegion,
-      isTranscode,
+      transcodeDecisions,
       watched,
       excludeShortSessions,
       orderBy = 'startedAt',
@@ -369,11 +369,26 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    // Standard filters
-    if (serverUserId) conditions.push(sql`s.server_user_id = ${serverUserId}`);
+    if (serverUserIds && serverUserIds.length > 0) {
+      const ids = serverUserIds as string[];
+      if (ids.length === 1) {
+        conditions.push(sql`s.server_user_id = ${ids[0]}`);
+      } else {
+        const userIdList = ids.map((id) => sql`${id}`);
+        conditions.push(sql`s.server_user_id IN (${sql.join(userIdList, sql`, `)})`);
+      }
+    }
     if (serverId) conditions.push(sql`s.server_id = ${serverId}`);
     if (state) conditions.push(sql`s.state = ${state}`);
-    if (mediaType) conditions.push(sql`s.media_type = ${mediaType}`);
+    if (mediaTypes && mediaTypes.length > 0) {
+      const types = mediaTypes as string[];
+      if (types.length === 1) {
+        conditions.push(sql`s.media_type = ${types[0]}`);
+      } else {
+        const mediaTypeList = types.map((t) => sql`${t}`);
+        conditions.push(sql`s.media_type IN (${sql.join(mediaTypeList, sql`, `)})`);
+      }
+    }
     if (startDate) conditions.push(sql`s.started_at >= ${startDate}`);
     if (endDate) {
       // Adjust endDate to end of day (23:59:59.999) to include all sessions from that day
@@ -404,20 +419,41 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       );
     }
 
-    // Device/client filters
-    if (platform) conditions.push(sql`s.platform = ${platform}`);
+    if (platforms && platforms.length > 0) {
+      const plats = platforms as string[];
+      if (plats.length === 1) {
+        conditions.push(sql`s.platform = ${plats[0]}`);
+      } else {
+        const platformList = plats.map((p) => sql`${p}`);
+        conditions.push(sql`s.platform IN (${sql.join(platformList, sql`, `)})`);
+      }
+    }
     if (product) conditions.push(sql`s.product = ${product}`);
     if (device) conditions.push(sql`s.device = ${device}`);
     if (playerName) conditions.push(sql`s.player_name ILIKE ${`%${playerName}%`}`);
 
-    // Network/location filters
     if (ipAddress) conditions.push(sql`s.ip_address = ${ipAddress}`);
-    if (geoCountry) conditions.push(sql`s.geo_country = ${geoCountry}`);
+    if (geoCountries && geoCountries.length > 0) {
+      const countries = geoCountries as string[];
+      if (countries.length === 1) {
+        conditions.push(sql`s.geo_country = ${countries[0]}`);
+      } else {
+        const countryList = countries.map((c) => sql`${c}`);
+        conditions.push(sql`s.geo_country IN (${sql.join(countryList, sql`, `)})`);
+      }
+    }
     if (geoCity) conditions.push(sql`s.geo_city = ${geoCity}`);
     if (geoRegion) conditions.push(sql`s.geo_region = ${geoRegion}`);
 
-    // Stream quality
-    if (isTranscode !== undefined) conditions.push(sql`s.is_transcode = ${isTranscode}`);
+    if (transcodeDecisions && transcodeDecisions.length > 0 && transcodeDecisions.length < 3) {
+      const decisions = transcodeDecisions as string[];
+      if (decisions.length === 1) {
+        conditions.push(sql`s.video_decision = ${decisions[0]}`);
+      } else {
+        const decisionList = decisions.map((d) => sql`${d}`);
+        conditions.push(sql`s.video_decision IN (${sql.join(decisionList, sql`, `)})`);
+      }
+    }
 
     // Status filters
     if (watched !== undefined) conditions.push(sql`s.watched = ${watched}`);

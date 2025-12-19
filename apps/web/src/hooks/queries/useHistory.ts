@@ -12,22 +12,22 @@ import { api } from '@/lib/api';
  * Omits cursor and pageSize as those are handled by infinite query.
  */
 export interface HistoryFilters {
-  serverUserId?: string;
+  serverUserIds?: string[];
   serverId?: string;
   state?: 'playing' | 'paused' | 'stopped';
-  mediaType?: 'movie' | 'episode' | 'track';
+  mediaTypes?: ('movie' | 'episode' | 'track')[];
   startDate?: Date;
   endDate?: Date;
   search?: string;
-  platform?: string;
+  platforms?: string[];
   product?: string;
   device?: string;
   playerName?: string;
   ipAddress?: string;
-  geoCountry?: string;
+  geoCountries?: string[];
   geoCity?: string;
   geoRegion?: string;
-  isTranscode?: boolean;
+  transcodeDecisions?: ('directplay' | 'copy' | 'transcode')[];
   watched?: boolean;
   excludeShortSessions?: boolean;
   orderBy?: 'startedAt' | 'durationMs' | 'mediaTitle';

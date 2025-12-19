@@ -475,23 +475,25 @@ class ApiClient {
       const searchParams = new URLSearchParams();
       if (params.cursor) searchParams.set('cursor', params.cursor);
       if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
-      if (params.serverUserId) searchParams.set('serverUserId', params.serverUserId);
+      if (params.serverUserIds?.length)
+        searchParams.set('serverUserIds', params.serverUserIds.join(','));
       if (params.serverId) searchParams.set('serverId', params.serverId);
       if (params.state) searchParams.set('state', params.state);
-      if (params.mediaType) searchParams.set('mediaType', params.mediaType);
+      if (params.mediaTypes?.length) searchParams.set('mediaTypes', params.mediaTypes.join(','));
       if (params.startDate) searchParams.set('startDate', params.startDate.toISOString());
       if (params.endDate) searchParams.set('endDate', params.endDate.toISOString());
       if (params.search) searchParams.set('search', params.search);
-      if (params.platform) searchParams.set('platform', params.platform);
+      if (params.platforms?.length) searchParams.set('platforms', params.platforms.join(','));
       if (params.product) searchParams.set('product', params.product);
       if (params.device) searchParams.set('device', params.device);
       if (params.playerName) searchParams.set('playerName', params.playerName);
       if (params.ipAddress) searchParams.set('ipAddress', params.ipAddress);
-      if (params.geoCountry) searchParams.set('geoCountry', params.geoCountry);
+      if (params.geoCountries?.length)
+        searchParams.set('geoCountries', params.geoCountries.join(','));
       if (params.geoCity) searchParams.set('geoCity', params.geoCity);
       if (params.geoRegion) searchParams.set('geoRegion', params.geoRegion);
-      if (params.isTranscode !== undefined)
-        searchParams.set('isTranscode', String(params.isTranscode));
+      if (params.transcodeDecisions?.length)
+        searchParams.set('transcodeDecisions', params.transcodeDecisions.join(','));
       if (params.watched !== undefined) searchParams.set('watched', String(params.watched));
       if (params.excludeShortSessions) searchParams.set('excludeShortSessions', 'true');
       if (params.orderBy) searchParams.set('orderBy', params.orderBy);

@@ -67,36 +67,47 @@ export const sessionQuerySchema = paginationSchema.extend({
  * Supports cursor-based pagination for efficient infinite scroll and
  * all available session fields for filtering.
  */
+const commaSeparatedArray = (schema: z.ZodType) =>
+  z
+    .union([schema.array(), z.string().transform((s) => (s ? s.split(',') : []))])
+    .optional()
+    .transform((arr) => (arr && arr.length > 0 ? arr : undefined));
+
 export const historyQuerySchema = z.object({
   // Pagination - cursor-based for infinite scroll (more efficient than offset for large datasets)
   cursor: z.string().optional(), // Composite: `${startedAt.getTime()}_${playId}`
   pageSize: z.coerce.number().int().positive().max(100).default(50),
 
-  // Existing filters from sessionQuerySchema
-  serverUserId: uuidSchema.optional(),
+  // User filter - supports multi-select (comma-separated UUIDs in query string)
+  serverUserIds: commaSeparatedArray(uuidSchema),
+
+  // Server filter
   serverId: uuidSchema.optional(),
   state: z.enum(['playing', 'paused', 'stopped']).optional(),
-  mediaType: z.enum(['movie', 'episode', 'track']).optional(),
+
+  // Media type filter - supports multi-select
+  mediaTypes: commaSeparatedArray(z.enum(['movie', 'episode', 'track'])),
+
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
 
   // Title/content search (ILIKE on mediaTitle and grandparentTitle)
   search: z.string().max(200).optional(),
 
-  // Device/client filters
-  platform: z.string().max(100).optional(), // Windows, macOS, iOS, Android
+  // Platform filter - supports multi-select (comma-separated in query string)
+  platforms: commaSeparatedArray(z.string().max(100)),
   product: z.string().max(255).optional(), // Plex for Windows, Jellyfin Web
   device: z.string().max(255).optional(), // iPhone, Android TV
   playerName: z.string().max(255).optional(), // Device friendly name
 
   // Network/location filters
   ipAddress: z.string().max(45).optional(), // Exact IP match
-  geoCountry: z.string().max(100).optional(), // Country name or code
+  // Country filter - supports multi-select (comma-separated in query string)
+  geoCountries: commaSeparatedArray(z.string().max(100)),
   geoCity: z.string().max(255).optional(), // City name
   geoRegion: z.string().max(255).optional(), // State/province
 
-  // Stream quality filters
-  isTranscode: z.coerce.boolean().optional(), // true = transcode, false = direct play
+  transcodeDecisions: commaSeparatedArray(z.enum(['directplay', 'copy', 'transcode'])),
 
   // Status filters
   watched: z.coerce.boolean().optional(), // 85%+ completion
