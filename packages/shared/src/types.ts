@@ -212,19 +212,27 @@ export type RuleType =
 export interface ImpossibleTravelParams {
   maxSpeedKmh: number;
   ignoreVpnRanges?: boolean;
+  /** When true, exclude sessions from private/local network IPs from comparison */
+  excludePrivateIps?: boolean;
 }
 
 export interface SimultaneousLocationsParams {
   minDistanceKm: number;
+  /** When true, exclude sessions from private/local network IPs from comparison */
+  excludePrivateIps?: boolean;
 }
 
 export interface DeviceVelocityParams {
   maxIps: number;
   windowHours: number;
+  /** When true, exclude private/local network IPs (192.168.x.x, 10.x.x.x, etc.) from unique IP count */
+  excludePrivateIps?: boolean;
 }
 
 export interface ConcurrentStreamsParams {
   maxStreams: number;
+  /** When true, exclude sessions from private/local network IPs from stream count */
+  excludePrivateIps?: boolean;
 }
 
 export type GeoRestrictionMode = 'blocklist' | 'allowlist';
@@ -232,6 +240,8 @@ export type GeoRestrictionMode = 'blocklist' | 'allowlist';
 export interface GeoRestrictionParams {
   mode: GeoRestrictionMode;
   countries: string[];
+  /** When true, always allow sessions from private/local network IPs (default behavior, explicit option) */
+  excludePrivateIps?: boolean;
 }
 
 export type RuleParams =

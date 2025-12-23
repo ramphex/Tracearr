@@ -13,6 +13,10 @@ import type {
   GeoRestrictionParams,
 } from '@tracearr/shared';
 import { GEOIP_CONFIG, TIME_MS } from '@tracearr/shared';
+import { geoipService } from './geoip.js';
+
+/** Constant for local network country value - must match geoip service */
+const LOCAL_NETWORK_COUNTRY = 'Local Network';
 
 export interface RuleEvaluationResult {
   violated: boolean;
@@ -23,6 +27,54 @@ export interface RuleEvaluationResult {
 }
 
 export class RuleEngine {
+  /**
+   * Check if a session is from a local/private network
+   * Checks both geoCountry AND IP address for robustness
+   */
+  private isLocalNetworkSession(session: Session): boolean {
+    return (
+      session.geoCountry === LOCAL_NETWORK_COUNTRY ||
+      geoipService.isPrivateIP(session.ipAddress)
+    );
+  }
+
+  /**
+   * Check if a session should be excluded based on private IP filtering
+   * @param session The session to check
+   * @param excludePrivateIps Whether to exclude private IPs
+   * @returns true if the session should be excluded (is from local network and filtering is enabled)
+   */
+  private shouldExcludeSession(session: Session, excludePrivateIps?: boolean): boolean {
+    return excludePrivateIps === true && this.isLocalNetworkSession(session);
+  }
+
+  /**
+   * Filter sessions based on private IP exclusion setting
+   * @param sessions Sessions to filter
+   * @param excludePrivateIps Whether to exclude private IPs
+   * @returns Filtered sessions (excluding local network sessions if enabled)
+   */
+  private filterByPrivateIp(sessions: Session[], excludePrivateIps?: boolean): Session[] {
+    if (!excludePrivateIps) {
+      return sessions;
+    }
+    return sessions.filter((s) => !this.isLocalNetworkSession(s));
+  }
+
+  /**
+   * Filter IP addresses based on private IP exclusion setting
+   * Uses geoipService.isPrivateIP for raw IP strings (device_velocity)
+   * @param ips IP addresses to filter
+   * @param excludePrivateIps Whether to exclude private IPs
+   * @returns Filtered IPs (excluding private IPs if enabled)
+   */
+  private filterPrivateIps(ips: string[], excludePrivateIps?: boolean): string[] {
+    if (!excludePrivateIps) {
+      return ips;
+    }
+    return ips.filter((ip) => !geoipService.isPrivateIP(ip));
+  }
+
   /**
    * Evaluate all active rules against a new session
    */
@@ -91,8 +143,13 @@ export class RuleEngine {
     recentSessions: Session[],
     params: ImpossibleTravelParams
   ): RuleEvaluationResult {
+    // Issue #82: Skip if current session is from private IP and excludePrivateIps is enabled
+    if (this.shouldExcludeSession(session, params.excludePrivateIps)) {
+      return { violated: false, severity: 'low', data: {} };
+    }
+
     // Find most recent session from same server user with different location
-    const userSessions = recentSessions.filter(
+    const userSessions = this.filterByPrivateIp(recentSessions, params.excludePrivateIps).filter(
       (s) =>
         s.serverUserId === session.serverUserId &&
         s.geoLat !== null &&
@@ -141,8 +198,13 @@ export class RuleEngine {
     recentSessions: Session[],
     params: SimultaneousLocationsParams
   ): RuleEvaluationResult {
+    // Issue #82: Skip if current session is from private IP and excludePrivateIps is enabled
+    if (this.shouldExcludeSession(session, params.excludePrivateIps)) {
+      return { violated: false, severity: 'low', data: {} };
+    }
+
     // Check for active sessions from same server user at different locations
-    const activeSessions = recentSessions.filter(
+    const activeSessions = this.filterByPrivateIp(recentSessions, params.excludePrivateIps).filter(
       (s) =>
         s.serverUserId === session.serverUserId &&
         s.state === 'playing' &&
@@ -215,8 +277,15 @@ export class RuleEngine {
       (s) => s.serverUserId === session.serverUserId && s.startedAt >= windowStart
     );
 
-    const uniqueIps = new Set(userSessions.map((s) => s.ipAddress));
-    uniqueIps.add(session.ipAddress);
+    // Issue #82: Collect all IPs, optionally filtering out private IPs
+    const allIps = userSessions.map((s) => s.ipAddress);
+    // Only add current session IP if not excluded
+    if (!this.shouldExcludeSession(session, params.excludePrivateIps)) {
+      allIps.push(session.ipAddress);
+    }
+
+    const filteredIps = this.filterPrivateIps(allIps, params.excludePrivateIps);
+    const uniqueIps = new Set(filteredIps);
 
     if (uniqueIps.size > params.maxIps) {
       return {
@@ -239,7 +308,10 @@ export class RuleEngine {
     recentSessions: Session[],
     params: ConcurrentStreamsParams
   ): RuleEvaluationResult {
-    const activeSessions = recentSessions.filter(
+    // Issue #82: Filter out private IP sessions if excludePrivateIps is enabled
+    const filteredSessions = this.filterByPrivateIp(recentSessions, params.excludePrivateIps);
+
+    const activeSessions = filteredSessions.filter(
       (s) =>
         s.serverUserId === session.serverUserId &&
         s.state === 'playing' &&
@@ -251,8 +323,9 @@ export class RuleEngine {
         !(session.deviceId && s.deviceId && session.deviceId === s.deviceId)
     );
 
-    // Add 1 for current session
-    const totalStreams = activeSessions.length + 1;
+    // Add 1 for current session only if it's not excluded
+    const currentSessionExcluded = this.shouldExcludeSession(session, params.excludePrivateIps);
+    const totalStreams = activeSessions.length + (currentSessionExcluded ? 0 : 1);
 
     if (totalStreams > params.maxStreams) {
       // Collect all session IDs for deduplication and related sessions lookup
@@ -284,7 +357,7 @@ export class RuleEngine {
       [];
 
     // Skip local/private IPs - they have no meaningful geo location
-    if (!session.geoCountry || session.geoCountry === 'Local Network' || countries.length === 0) {
+    if (!session.geoCountry || session.geoCountry === LOCAL_NETWORK_COUNTRY || countries.length === 0) {
       return { violated: false, severity: 'low', data: {} };
     }
 

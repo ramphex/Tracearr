@@ -7,20 +7,25 @@ export const RULE_DEFAULTS = {
   impossible_travel: {
     maxSpeedKmh: 500,
     ignoreVpnRanges: false,
+    excludePrivateIps: false,
   },
   simultaneous_locations: {
     minDistanceKm: 100,
+    excludePrivateIps: false,
   },
   device_velocity: {
     maxIps: 5,
     windowHours: 24,
+    excludePrivateIps: false,
   },
   concurrent_streams: {
     maxStreams: 3,
+    excludePrivateIps: false,
   },
   geo_restriction: {
     mode: 'blocklist',
     countries: [],
+    excludePrivateIps: false,
   },
 } as const;
 
