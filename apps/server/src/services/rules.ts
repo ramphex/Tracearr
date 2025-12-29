@@ -14,9 +14,43 @@ import type {
 } from '@tracearr/shared';
 import { GEOIP_CONFIG, TIME_MS } from '@tracearr/shared';
 import { geoipService } from './geoip.js';
+import countries from 'i18n-iso-countries';
+import countriesEn from 'i18n-iso-countries/langs/en.json' with { type: 'json' };
+
+// Register English locale for country name lookups
+countries.registerLocale(countriesEn);
 
 /** Constant for local network country value - must match geoip service */
 const LOCAL_NETWORK_COUNTRY = 'Local Network';
+
+/**
+ * Normalize a country value to ISO 3166-1 alpha-2 code.
+ * Handles both country names ("Italy") and codes ("IT").
+ * Returns null if the country cannot be normalized.
+ */
+function normalizeToCountryCode(country: string): string | null {
+  if (!country || country === LOCAL_NETWORK_COUNTRY) {
+    return null;
+  }
+
+  // If it's already a 2-letter code, validate and return uppercase
+  if (country.length === 2) {
+    const upper = country.toUpperCase();
+    // Verify it's a valid country code
+    if (countries.getName(upper, 'en')) {
+      return upper;
+    }
+  }
+
+  // Try to convert country name to code
+  const code = countries.getAlpha2Code(country, 'en');
+  if (code) {
+    return code;
+  }
+
+  // Fallback: return the original value uppercase (might be a valid code)
+  return country.length === 2 ? country.toUpperCase() : null;
+}
 
 export interface RuleEvaluationResult {
   violated: boolean;
@@ -372,7 +406,7 @@ export class RuleEngine {
   ): RuleEvaluationResult {
     // Handle backwards compatibility: old rules have blockedCountries, new rules have mode + countries
     const mode = params.mode ?? 'blocklist';
-    const countries =
+    const ruleCountries =
       params.countries ??
       (params as unknown as { blockedCountries?: string[] }).blockedCountries ??
       [];
@@ -381,12 +415,28 @@ export class RuleEngine {
     if (
       !session.geoCountry ||
       session.geoCountry === LOCAL_NETWORK_COUNTRY ||
-      countries.length === 0
+      ruleCountries.length === 0
     ) {
       return { violated: false, severity: 'low', data: {} };
     }
 
-    const isInList = countries.includes(session.geoCountry);
+    // Normalize session's country to ISO code for consistent comparison
+    // Session might have full name ("Italy") or code ("IT")
+    // Rule list should have codes, but normalize both for safety
+    const sessionCountryCode = normalizeToCountryCode(session.geoCountry);
+
+    // If we can't normalize the session's country, skip the check
+    // (better to allow than to incorrectly block)
+    if (!sessionCountryCode) {
+      return { violated: false, severity: 'low', data: {} };
+    }
+
+    // Normalize the rule's country list (should be codes, but handle names too)
+    const normalizedRuleCountries = ruleCountries
+      .map((c) => normalizeToCountryCode(c))
+      .filter((c): c is string => c !== null);
+
+    const isInList = normalizedRuleCountries.includes(sessionCountryCode);
     const violated = mode === 'blocklist' ? isInList : !isInList;
 
     if (violated) {
@@ -395,8 +445,9 @@ export class RuleEngine {
         severity: 'high',
         data: {
           country: session.geoCountry,
+          countryCode: sessionCountryCode,
           mode,
-          countries,
+          countries: ruleCountries,
         },
       };
     }
