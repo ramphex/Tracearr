@@ -320,7 +320,8 @@ export interface ViolationWithDetails extends Violation {
 // Stats types
 export interface DashboardStats {
   activeStreams: number;
-  todayPlays: number;
+  todayPlays: number; // Validated plays (sessions >= 2 min)
+  todaySessions: number; // Raw session count (for comparison)
   watchTimeHours: number;
   alertsLast24h: number;
   activeUsersToday: number;
@@ -368,7 +369,7 @@ export interface LocationStatsSummary {
 export interface LocationFilterOptions {
   users: { id: string; username: string; identityName: string | null }[];
   servers: { id: string; name: string }[];
-  mediaTypes: ('movie' | 'episode' | 'track')[];
+  mediaTypes: MediaType[];
 }
 
 export interface LocationStatsResponse {
@@ -523,6 +524,8 @@ export interface TautulliImportResult {
   success: boolean;
   imported: number;
   updated: number;
+  /** Number of sessions linked via referenceId (resume chain detection) */
+  linked: number;
   skipped: number;
   errors: number;
   message: string;
@@ -1074,7 +1077,8 @@ export interface UnlinkPlexAccountResponse {
 export type MaintenanceJobType =
   | 'normalize_players'
   | 'normalize_countries'
-  | 'fix_imported_progress';
+  | 'fix_imported_progress'
+  | 'rebuild_timescale_views';
 
 export type MaintenanceJobStatus = 'idle' | 'running' | 'complete' | 'error';
 
@@ -1100,6 +1104,134 @@ export interface MaintenanceJobResult {
   errors: number;
   durationMs: number;
   message: string;
+}
+
+// =============================================================================
+// Engagement Tracking Types
+// =============================================================================
+
+// Engagement tier based on cumulative watch completion percentage
+export type EngagementTier =
+  | 'abandoned' // < 20%
+  | 'sampled' // 20-49%
+  | 'engaged' // 50-79%
+  | 'completed' // 80-99%
+  | 'finished' // 100%+
+  | 'rewatched' // 200%+
+  | 'unknown'; // Missing duration data
+
+// User behavior classification based on engagement patterns
+export type UserBehaviorType =
+  | 'inactive' // No activity
+  | 'sampler' // >50% abandoned
+  | 'casual' // Default
+  | 'completionist' // >70% finished
+  | 'rewatcher'; // >20% rewatched
+
+// Individual content engagement (from content_engagement_summary view)
+export interface ContentEngagement {
+  ratingKey: string;
+  mediaTitle: string;
+  showTitle: string | null;
+  mediaType: MediaType;
+  thumbPath: string | null;
+  serverId: string | null;
+  year: number | null;
+  plays: number; // Netflix-style calculated plays
+  completionPct: number;
+  engagementTier: EngagementTier;
+  cumulativeWatchedMs: number;
+  validSessions: number;
+  totalSessions: number;
+  firstWatchedAt: Date;
+  lastWatchedAt: Date;
+}
+
+// Top content with engagement metrics (from top_content_by_plays view)
+export interface TopContentEngagement {
+  ratingKey: string;
+  title: string;
+  showTitle: string | null;
+  type: MediaType;
+  thumbPath: string | null;
+  serverId: string | null;
+  year: number | null;
+  totalPlays: number;
+  totalWatchHours: number;
+  uniqueViewers: number;
+  validSessions: number;
+  totalSessions: number;
+  completions: number;
+  rewatches: number;
+  abandonments: number;
+  completionRate: number;
+  abandonmentRate: number;
+}
+
+// Show-level engagement (from top_shows_by_engagement view)
+export interface ShowEngagement {
+  showTitle: string;
+  thumbPath: string | null;
+  serverId: string | null;
+  year: number | null;
+  totalEpisodeViews: number;
+  totalWatchHours: number;
+  uniqueViewers: number;
+  avgEpisodesPerViewer: number;
+  avgCompletionRate: number;
+  bingeScore: number;
+  validSessions: number;
+  totalSessions: number;
+}
+
+// User engagement profile (from user_engagement_profile view)
+export interface UserEngagementProfile {
+  serverUserId: string;
+  username: string;
+  thumbUrl: string | null;
+  identityName: string | null;
+  contentStarted: number;
+  totalPlays: number;
+  totalWatchHours: number;
+  validSessionCount: number;
+  totalSessionCount: number;
+  abandonedCount: number;
+  sampledCount: number;
+  engagedCount: number;
+  completedCount: number;
+  rewatchedCount: number;
+  completionRate: number;
+  behaviorType: UserBehaviorType;
+  favoriteMediaType: MediaType | null;
+}
+
+// Engagement tier breakdown for summary stats
+export interface EngagementTierBreakdown {
+  tier: EngagementTier;
+  count: number;
+  percentage: number;
+}
+
+// Main engagement stats response
+export interface EngagementStats {
+  topContent: TopContentEngagement[];
+  topShows: ShowEngagement[];
+  engagementBreakdown: EngagementTierBreakdown[];
+  userProfiles: UserEngagementProfile[];
+  // Summary metrics
+  summary: {
+    totalPlays: number;
+    totalValidSessions: number;
+    totalAllSessions: number;
+    sessionInflationPct: number; // How much overcounting would occur with raw sessions
+    avgCompletionRate: number;
+  };
+}
+
+// Show stats response (for GET /stats/shows)
+export interface ShowStatsResponse {
+  data: ShowEngagement[];
+  total: number;
 }
 
 // =============================================================================

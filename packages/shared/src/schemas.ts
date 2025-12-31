@@ -62,7 +62,7 @@ export const sessionQuerySchema = paginationSchema.extend({
   serverUserId: uuidSchema.optional(),
   serverId: uuidSchema.optional(),
   state: z.enum(['playing', 'paused', 'stopped']).optional(),
-  mediaType: z.enum(['movie', 'episode', 'track']).optional(),
+  mediaType: z.enum(['movie', 'episode', 'track', 'live']).optional(),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
 });
@@ -91,7 +91,7 @@ export const historyQuerySchema = z.object({
   state: z.enum(['playing', 'paused', 'stopped']).optional(),
 
   // Media type filter - supports multi-select
-  mediaTypes: commaSeparatedArray(z.enum(['movie', 'episode', 'track'])),
+  mediaTypes: commaSeparatedArray(z.enum(['movie', 'episode', 'track', 'live'])),
 
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
@@ -261,7 +261,7 @@ export const locationStatsQuerySchema = z
     endDate: z.iso.datetime().optional(),
     serverUserId: uuidSchema.optional(),
     serverId: uuidSchema.optional(),
-    mediaType: z.enum(['movie', 'episode', 'track']).optional(),
+    mediaType: z.enum(['movie', 'episode', 'track', 'live']).optional(),
   })
   .refine(
     (data) => {
@@ -438,3 +438,94 @@ export type JellystatPlaybackActivity = z.infer<typeof jellystatPlaybackActivity
 export type JellystatBackup = z.infer<typeof jellystatBackupSchema>;
 export type JellystatImportBody = z.infer<typeof jellystatImportBodySchema>;
 export type ImportJobStatus = z.infer<typeof importJobStatusSchema>;
+
+// ============================================================================
+// Engagement Stats Schemas
+// ============================================================================
+
+// Engagement tier enum for validation
+export const engagementTierSchema = z.enum([
+  'abandoned',
+  'sampled',
+  'engaged',
+  'completed',
+  'finished',
+  'rewatched',
+  'unknown',
+]);
+
+// User behavior type enum for validation
+export const userBehaviorTypeSchema = z.enum([
+  'inactive',
+  'sampler',
+  'casual',
+  'completionist',
+  'rewatcher',
+]);
+
+// Engagement stats query schema - extends base stats query
+export const engagementQuerySchema = z
+  .object({
+    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('week'),
+    startDate: z.iso.datetime().optional(),
+    endDate: z.iso.datetime().optional(),
+    serverId: uuidSchema.optional(),
+    timezone: timezoneSchema,
+    // Engagement-specific filters
+    mediaType: z.enum(['movie', 'episode', 'track', 'live']).optional(),
+    limit: z.coerce.number().int().positive().max(100).default(10),
+  })
+  .refine(
+    (data) => {
+      if (data.period === 'custom') {
+        return data.startDate && data.endDate;
+      }
+      return true;
+    },
+    { message: 'Custom period requires startDate and endDate' }
+  )
+  .refine(
+    (data) => {
+      if (data.startDate && data.endDate) {
+        return new Date(data.startDate) < new Date(data.endDate);
+      }
+      return true;
+    },
+    { message: 'startDate must be before endDate' }
+  );
+
+// Show stats query schema
+export const showsQuerySchema = z
+  .object({
+    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('month'),
+    startDate: z.iso.datetime().optional(),
+    endDate: z.iso.datetime().optional(),
+    serverId: uuidSchema.optional(),
+    timezone: timezoneSchema,
+    limit: z.coerce.number().int().positive().max(100).default(20),
+    orderBy: z
+      .enum(['totalEpisodeViews', 'totalWatchHours', 'bingeScore', 'uniqueViewers'])
+      .default('totalEpisodeViews'),
+  })
+  .refine(
+    (data) => {
+      if (data.period === 'custom') {
+        return data.startDate && data.endDate;
+      }
+      return true;
+    },
+    { message: 'Custom period requires startDate and endDate' }
+  )
+  .refine(
+    (data) => {
+      if (data.startDate && data.endDate) {
+        return new Date(data.startDate) < new Date(data.endDate);
+      }
+      return true;
+    },
+    { message: 'startDate must be before endDate' }
+  );
+
+// Engagement types
+export type EngagementQueryInput = z.infer<typeof engagementQuerySchema>;
+export type ShowsQueryInput = z.infer<typeof showsQuerySchema>;

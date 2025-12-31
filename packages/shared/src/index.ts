@@ -122,6 +122,16 @@ export type {
   UnlinkPlexAccountResponse,
   // Version
   VersionInfo,
+  // Engagement tracking
+  EngagementTier,
+  UserBehaviorType,
+  ContentEngagement,
+  TopContentEngagement,
+  ShowEngagement,
+  UserEngagementProfile,
+  EngagementTierBreakdown,
+  EngagementStats,
+  ShowStatsResponse,
 } from './types.js';
 
 // Schema exports
@@ -174,6 +184,11 @@ export {
   jellystatBackupSchema,
   jellystatImportBodySchema,
   importJobStatusSchema,
+  // Engagement tracking
+  engagementTierSchema,
+  userBehaviorTypeSchema,
+  engagementQuerySchema,
+  showsQuerySchema,
 } from './schemas.js';
 
 // Schema input type exports
@@ -201,6 +216,9 @@ export type {
   JellystatBackup,
   JellystatImportBody,
   ImportJobStatus,
+  // Engagement tracking
+  EngagementQueryInput,
+  ShowsQueryInput,
 } from './schemas.js';
 
 // Constant exports
