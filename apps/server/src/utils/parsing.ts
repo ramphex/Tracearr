@@ -191,6 +191,54 @@ export function parseFirstArrayElement<T>(
 }
 
 /**
+ * Find the selected element in an array based on a 'selected' property.
+ * Plex uses selected=1 to indicate which Media/Stream is actively playing
+ * when multiple versions exist.
+ *
+ * @param arr - Array to search (e.g., Media[], Stream[])
+ * @returns The selected element, or the first element if none is selected
+ *
+ * @example
+ * const media = findSelectedElement(item.Media); // Media with selected=1
+ * const bitrate = media?.bitrate;
+ */
+export function findSelectedElement<T extends Record<string, unknown>>(
+  arr: unknown
+): T | undefined {
+  if (!Array.isArray(arr) || arr.length === 0) return undefined;
+
+  // Find element with selected=1 (Plex uses number 1, not boolean true)
+  const selected = arr.find((item) => {
+    if (item == null || typeof item !== 'object') return false;
+    const sel = (item as Record<string, unknown>).selected;
+    return sel === 1 || sel === '1' || sel === true;
+  });
+
+  // Fall back to first element if none explicitly selected
+  const result = selected ?? arr[0];
+  if (result == null || typeof result !== 'object') return undefined;
+  return result as T;
+}
+
+/**
+ * Get a property from the selected element in an array.
+ * Combines findSelectedElement with property access.
+ *
+ * @example
+ * const bitrate = parseSelectedArrayElement(item.Media, 'bitrate'); // from selected Media
+ */
+export function parseSelectedArrayElement<T>(
+  val: unknown,
+  key: string,
+  defaultVal?: T
+): T | undefined {
+  const selected = findSelectedElement<Record<string, unknown>>(val);
+  if (!selected) return defaultVal;
+  const value = selected[key];
+  return value !== undefined ? (value as T) : defaultVal;
+}
+
+/**
  * Parse string or return null (for nullable DB fields)
  * Unlike parseOptionalString which returns undefined
  *

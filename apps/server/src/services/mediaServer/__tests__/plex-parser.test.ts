@@ -140,6 +140,66 @@ describe('Plex Session Parser', () => {
       expect(session.quality.bitrate).toBe(0);
     });
 
+    it('should use selected Media version when multiple versions exist (issue #117)', () => {
+      // When user has 4K and 1080p versions matched together, Plex returns both
+      // in the Media array but marks the playing one with selected=1
+      const rawSession = {
+        sessionKey: 'multi-version',
+        ratingKey: '12345',
+        title: 'Game of Thrones',
+        type: 'episode',
+        User: { id: '1', title: 'User' },
+        Player: { title: 'TV', machineIdentifier: 'tv-1' },
+        Media: [
+          {
+            // 4K version - NOT selected (first in array)
+            videoResolution: '4k',
+            width: 3840,
+            height: 2160,
+            bitrate: 50000,
+          },
+          {
+            // 1080p version - SELECTED (user is watching this one)
+            videoResolution: '1080',
+            width: 1920,
+            height: 1080,
+            bitrate: 10000,
+            selected: 1,
+          },
+        ],
+      };
+
+      const session = parseSession(rawSession);
+
+      // Should use the selected 1080p version, not the first 4K version
+      expect(session.quality.videoResolution).toBe('1080');
+      expect(session.quality.videoWidth).toBe(1920);
+      expect(session.quality.videoHeight).toBe(1080);
+      expect(session.quality.bitrate).toBe(10000);
+    });
+
+    it('should fall back to first Media when none are selected', () => {
+      const rawSession = {
+        sessionKey: 'single-version',
+        type: 'movie',
+        User: {},
+        Player: {},
+        Media: [
+          {
+            videoResolution: '4k',
+            width: 3840,
+            height: 2160,
+            bitrate: 50000,
+          },
+        ],
+      };
+
+      const session = parseSession(rawSession);
+
+      expect(session.quality.videoResolution).toBe('4k');
+      expect(session.quality.bitrate).toBe(50000);
+    });
+
     it('should fall back to local IP when no public IP available', () => {
       const rawSession = {
         sessionKey: 'local-only',

@@ -33,6 +33,8 @@ import {
   parseArray,
   parseFilteredArray,
   parseFirstArrayElement,
+  findSelectedElement,
+  parseSelectedArrayElement,
   getNestedObject,
   getNestedValue,
   parseDate,
@@ -353,6 +355,103 @@ describe('parseFirstArrayElement', () => {
       mediaSources: [{ Bitrate: 5000000 }],
     };
     expect(parseFirstArrayElement(nowPlaying.mediaSources, 'Bitrate')).toBe(5000000);
+  });
+});
+
+describe('findSelectedElement', () => {
+  it('should find element with selected=1 (number)', () => {
+    const media = [
+      { resolution: '4k', bitrate: 50000 },
+      { resolution: '1080', bitrate: 10000, selected: 1 },
+    ];
+    const selected = findSelectedElement(media);
+    expect(selected).toEqual({ resolution: '1080', bitrate: 10000, selected: 1 });
+  });
+
+  it('should find element with selected="1" (string)', () => {
+    const media = [
+      { resolution: '4k', bitrate: 50000 },
+      { resolution: '1080', bitrate: 10000, selected: '1' },
+    ];
+    const selected = findSelectedElement(media);
+    expect(selected).toEqual({ resolution: '1080', bitrate: 10000, selected: '1' });
+  });
+
+  it('should find element with selected=true (boolean)', () => {
+    const media = [
+      { resolution: '4k', bitrate: 50000 },
+      { resolution: '1080', bitrate: 10000, selected: true },
+    ];
+    const selected = findSelectedElement(media);
+    expect(selected).toEqual({ resolution: '1080', bitrate: 10000, selected: true });
+  });
+
+  it('should fall back to first element when none selected', () => {
+    const media = [
+      { resolution: '4k', bitrate: 50000 },
+      { resolution: '1080', bitrate: 10000 },
+    ];
+    const selected = findSelectedElement(media);
+    expect(selected).toEqual({ resolution: '4k', bitrate: 50000 });
+  });
+
+  it('should return undefined for empty array', () => {
+    expect(findSelectedElement([])).toBeUndefined();
+  });
+
+  it('should return undefined for non-array', () => {
+    expect(findSelectedElement(null)).toBeUndefined();
+    expect(findSelectedElement(undefined)).toBeUndefined();
+    expect(findSelectedElement('string')).toBeUndefined();
+  });
+
+  it('should handle Plex multi-version media pattern (issue #117)', () => {
+    // Plex returns multiple Media entries when user has 4K and 1080p versions
+    const media = [
+      { videoResolution: '4k', width: 3840, height: 2160, bitrate: 50000 },
+      { videoResolution: '1080', width: 1920, height: 1080, bitrate: 10000, selected: 1 },
+    ];
+    const selected = findSelectedElement(media);
+    expect(selected?.videoResolution).toBe('1080');
+    expect(selected?.width).toBe(1920);
+  });
+});
+
+describe('parseSelectedArrayElement', () => {
+  it('should get property from selected element', () => {
+    const media = [{ bitrate: 50000 }, { bitrate: 10000, selected: 1 }];
+    expect(parseSelectedArrayElement(media, 'bitrate')).toBe(10000);
+  });
+
+  it('should fall back to first element when none selected', () => {
+    const media = [{ bitrate: 50000 }, { bitrate: 10000 }];
+    expect(parseSelectedArrayElement(media, 'bitrate')).toBe(50000);
+  });
+
+  it('should return default for empty array', () => {
+    expect(parseSelectedArrayElement([], 'bitrate', 0)).toBe(0);
+    expect(parseSelectedArrayElement([], 'bitrate')).toBeUndefined();
+  });
+
+  it('should return default for non-array', () => {
+    expect(parseSelectedArrayElement(null, 'bitrate', 0)).toBe(0);
+    expect(parseSelectedArrayElement(undefined, 'bitrate', 0)).toBe(0);
+  });
+
+  it('should return default when property not found', () => {
+    const media = [{ other: 'value', selected: 1 }];
+    expect(parseSelectedArrayElement(media, 'bitrate', 0)).toBe(0);
+  });
+
+  it('should handle Plex multi-version resolution extraction', () => {
+    const item = {
+      Media: [
+        { videoResolution: '4k', bitrate: 50000 },
+        { videoResolution: '1080', bitrate: 10000, selected: 1 },
+      ],
+    };
+    expect(parseSelectedArrayElement(item.Media, 'videoResolution')).toBe('1080');
+    expect(parseSelectedArrayElement(item.Media, 'bitrate')).toBe(10000);
   });
 });
 

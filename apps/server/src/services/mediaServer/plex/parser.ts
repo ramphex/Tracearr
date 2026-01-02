@@ -12,7 +12,7 @@ import {
   parseOptionalString,
   parseOptionalNumber,
   parseArray,
-  parseFirstArrayElement,
+  parseSelectedArrayElement,
 } from '../../../utils/parsing.js';
 import { normalizeStreamDecisions } from '../../../utils/transcodeNormalizer.js';
 import type { MediaSession, MediaUser, MediaLibrary, MediaWatchHistoryItem } from '../types.js';
@@ -103,13 +103,14 @@ export function parseSession(item: Record<string, unknown>): MediaSession {
   const positionMs = parseNumber(item.viewOffset);
   const mediaType = parseMediaType(item.type);
 
-  // Get bitrate and resolution from Media array (first element)
-  const bitrate = parseNumber(parseFirstArrayElement(item.Media, 'bitrate'));
+  // Get bitrate and resolution from the selected Media element
+  // When multiple versions exist (e.g., 4K and 1080p), Plex marks the playing one with selected=1
+  const bitrate = parseNumber(parseSelectedArrayElement(item.Media, 'bitrate'));
   const videoResolution = parseOptionalString(
-    parseFirstArrayElement(item.Media, 'videoResolution')
+    parseSelectedArrayElement(item.Media, 'videoResolution')
   );
-  const videoWidth = parseOptionalNumber(parseFirstArrayElement(item.Media, 'width'));
-  const videoHeight = parseOptionalNumber(parseFirstArrayElement(item.Media, 'height'));
+  const videoWidth = parseOptionalNumber(parseSelectedArrayElement(item.Media, 'width'));
+  const videoHeight = parseOptionalNumber(parseSelectedArrayElement(item.Media, 'height'));
 
   // Get stream decisions using the transcode normalizer
   const { videoDecision, audioDecision, isTranscode } = normalizeStreamDecisions(
