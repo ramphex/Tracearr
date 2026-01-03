@@ -364,8 +364,7 @@ export function createCacheService(redis: Redis): CacheService {
     ): Promise<T | null> {
       const lockKey = `session:lock:${serverId}:${sessionKey}`;
 
-      // NX = only set if not exists, 5s TTL
-      const lockAcquired = await redis.set(lockKey, '1', 'EX', 5, 'NX');
+      const lockAcquired = await redis.set(lockKey, '1', 'EX', 15, 'NX');
       if (!lockAcquired) {
         return null;
       }

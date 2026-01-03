@@ -10,7 +10,7 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
-import { statsQuerySchema } from '@tracearr/shared';
+import { statsQuerySchema, SESSION_LIMITS } from '@tracearr/shared';
 import type { UserStats, TopUserStats } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { resolveDateRange } from './utils.js';
@@ -77,7 +77,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           su.id as server_user_id,
           su.username,
           su.thumb_url,
-          COUNT(DISTINCT COALESCE(s.reference_id, s.id))::int as play_count,
+          COUNT(DISTINCT COALESCE(s.reference_id, s.id)) FILTER (WHERE s.duration_ms >= ${SESSION_LIMITS.MIN_PLAY_TIME_MS})::int as play_count,
           COALESCE(SUM(s.duration_ms), 0)::bigint as watch_time_ms
         FROM server_users su
         LEFT JOIN sessions s ON s.server_user_id = su.id ${dateJoinFilter}
@@ -148,7 +148,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           su.thumb_url,
           su.server_id::text,
           su.trust_score,
-          COUNT(DISTINCT COALESCE(s.reference_id, s.id))::int as play_count,
+          COUNT(DISTINCT COALESCE(s.reference_id, s.id)) FILTER (WHERE s.duration_ms >= ${SESSION_LIMITS.MIN_PLAY_TIME_MS})::int as play_count,
           COALESCE(SUM(s.duration_ms), 0)::bigint as watch_time_ms,
           MODE() WITHIN GROUP (ORDER BY s.media_type) as top_media_type,
           MODE() WITHIN GROUP (ORDER BY COALESCE(s.grandparent_title, s.media_title)) as top_content

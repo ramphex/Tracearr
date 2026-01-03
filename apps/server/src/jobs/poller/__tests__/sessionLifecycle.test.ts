@@ -63,7 +63,7 @@ describe('withSessionCreateLock', () => {
       'session:lock:server-1:session-key-1',
       '1',
       'EX',
-      5,
+      15,
       'NX'
     );
     expect(mockRedis.del).toHaveBeenCalledWith('session:lock:server-1:session-key-1');

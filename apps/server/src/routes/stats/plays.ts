@@ -129,7 +129,6 @@ export const playsRoutes: FastifyPluginAsync = async (app) => {
    * GET /plays-by-dayofweek - Plays grouped by day of week (engagement-based)
    *
    * Returns validated plays (sessions >= 2 min) grouped by day of week.
-   * Uses the daily_content_engagement view for consistent counting.
    */
   app.get('/plays-by-dayofweek', { preHandler: [app.authenticate] }, async (request, reply) => {
     const query = statsQuerySchema.safeParse(request.query);
@@ -152,25 +151,21 @@ export const playsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const serverFilter = buildEngagementServerFilter(serverId, authUser);
+    const serverFilter = buildSessionServerFilter(serverId, authUser);
 
-    // Build date filter for the engagement view
-    const dateFilter = dateRange.start
-      ? sql`WHERE day >= date_trunc('day', ${dateRange.start}::timestamptz)`
-      : sql`WHERE true`;
-    const endDateFilter =
-      period === 'custom' && dateRange.end
-        ? sql`AND day < date_trunc('day', ${dateRange.end}::timestamptz) + interval '1 day'`
-        : sql``;
+    // Build base WHERE with duration filter for validated plays
+    const baseWhere = dateRange.start
+      ? sql`WHERE started_at >= ${dateRange.start} AND duration_ms >= ${MIN_PLAY_DURATION_MS}`
+      : sql`WHERE duration_ms >= ${MIN_PLAY_DURATION_MS}`;
 
-    // Query engagement view, extracting day of week from the day column
+    // Extract DOW from started_at in user's timezone for correct day bucketing
     const result = await db.execute(sql`
         SELECT
-          EXTRACT(DOW FROM day AT TIME ZONE ${tz})::int as day,
-          COALESCE(SUM(valid_session_count), 0)::int as count
-        FROM daily_content_engagement
-        ${dateFilter}
-        ${endDateFilter}
+          EXTRACT(DOW FROM started_at AT TIME ZONE ${tz})::int as day,
+          COUNT(DISTINCT COALESCE(reference_id, id))::int as count
+        FROM sessions
+        ${baseWhere}
+        ${period === 'custom' ? sql`AND started_at < ${dateRange.end}` : sql``}
         ${serverFilter}
         GROUP BY 1
         ORDER BY 1
