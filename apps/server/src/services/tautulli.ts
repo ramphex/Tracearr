@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { TautulliImportProgress, TautulliImportResult } from '@tracearr/shared';
 import { db } from '../db/client.js';
-import { settings, sessions } from '../db/schema.js';
+import { settings, sessions, serverUsers, users } from '../db/schema.js';
 import { refreshAggregates } from '../db/timescale.js';
 import { geoipService } from './geoip.js';
 import type { PubSubService } from './cache.js';
@@ -159,6 +159,71 @@ export class TautulliService {
     }
     this.baseUrl = url.replace(/\/$/, '');
     this.apiKey = apiKey;
+  }
+
+  /**
+   * Sync friendly/custom user names from Tautulli to Tracearr identities
+   */
+  private static async syncFriendlyNamesFromTautulli(
+    serverId: string,
+    tautulli: TautulliService
+  ): Promise<number> {
+    const tautulliUsers = await tautulli.getUsers();
+
+    // Build map of externalId -> friendly name (trimmed, non-empty)
+    const friendlyByExternalId = new Map<string, string>();
+    for (const user of tautulliUsers) {
+      const friendlyName = user.friendly_name?.trim();
+      if (friendlyName) {
+        friendlyByExternalId.set(String(user.user_id), friendlyName);
+      }
+    }
+
+    if (friendlyByExternalId.size === 0) {
+      return 0;
+    }
+
+    // Fetch server users for this server with linked identity info
+    const serverUserRows = await db
+      .select({
+        serverUserId: serverUsers.id,
+        externalId: serverUsers.externalId,
+        userId: serverUsers.userId,
+        identityName: users.name,
+      })
+      .from(serverUsers)
+      .innerJoin(users, eq(serverUsers.userId, users.id))
+      .where(eq(serverUsers.serverId, serverId));
+
+    const updates = new Map<string, string>();
+
+    for (const row of serverUserRows) {
+      const friendlyName = friendlyByExternalId.get(row.externalId);
+      if (!friendlyName) continue;
+
+      const currentName = row.identityName?.trim();
+      if (currentName === friendlyName) continue;
+
+      updates.set(row.userId, friendlyName);
+    }
+
+    if (updates.size === 0) {
+      return 0;
+    }
+
+    await db.transaction(async (tx) => {
+      for (const [userId, friendlyName] of updates) {
+        await tx
+          .update(users)
+          .set({
+            name: friendlyName,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, userId));
+      }
+    });
+
+    return updates.size;
   }
 
   /**
@@ -364,6 +429,19 @@ export class TautulliService {
     );
 
     publishProgress(progress);
+
+    // Sync friendly/custom names from Tautulli before importing history
+    progress.message = 'Syncing user display names from Tautulli...';
+    publishProgress(progress);
+
+    try {
+      const updatedNames = await TautulliService.syncFriendlyNamesFromTautulli(serverId, tautulli);
+      if (updatedNames > 0) {
+        console.log(`[Import] Updated ${updatedNames} user display names from Tautulli`);
+      }
+    } catch (err) {
+      console.warn('[Import] Failed to sync Tautulli friendly names:', err);
+    }
 
     // Get user mapping using shared module
     const userMapRaw = await createUserMapping(serverId);
