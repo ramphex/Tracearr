@@ -26,7 +26,7 @@ export interface TautulliImportJobData {
   serverId: string;
   userId: string; // Audit trail - who initiated the import
   checkpoint?: number; // Resume from this page (for future use)
-  overwriteFriendlyNames?: boolean; // Whether to override existing identity names
+  overwriteFriendlyNames?: boolean; // Whether to overwrite existing friendly names
 }
 
 export interface JellystatImportJobData {
