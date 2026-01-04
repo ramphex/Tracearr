@@ -1720,6 +1720,7 @@ function ImportSettings() {
   const [connectionMessage, setConnectionMessage] = useState('');
   const [tautulliProgress, setTautulliProgress] = useState<TautulliImportProgress | null>(null);
   const [isTautulliImporting, setIsTautulliImporting] = useState(false);
+  const [overwriteFriendlyNames, setOverwriteFriendlyNames] = useState(false);
   const [_tautulliActiveJobId, setTautulliActiveJobId] = useState<string | null>(null);
 
   // Jellystat state
@@ -1927,7 +1928,7 @@ function ImportSettings() {
     });
 
     try {
-      const result = await api.import.tautulli.start(selectedPlexServerId);
+      const result = await api.import.tautulli.start(selectedPlexServerId, overwriteFriendlyNames);
       if (result.jobId) {
         setTautulliActiveJobId(result.jobId);
       }
@@ -2133,6 +2134,8 @@ function ImportSettings() {
                 selectedPlexServerId={selectedPlexServerId}
                 setSelectedPlexServerId={setSelectedPlexServerId}
                 isTautulliImporting={isTautulliImporting}
+                overwriteFriendlyNames={overwriteFriendlyNames}
+                setOverwriteFriendlyNames={setOverwriteFriendlyNames}
                 handleStartTautulliImport={handleStartTautulliImport}
                 tautulliProgressData={tautulliProgressData}
               />
@@ -2166,6 +2169,8 @@ function ImportSettings() {
             selectedPlexServerId={selectedPlexServerId}
             setSelectedPlexServerId={setSelectedPlexServerId}
             isTautulliImporting={isTautulliImporting}
+            overwriteFriendlyNames={overwriteFriendlyNames}
+            setOverwriteFriendlyNames={setOverwriteFriendlyNames}
             handleStartTautulliImport={handleStartTautulliImport}
             tautulliProgressData={tautulliProgressData}
           />
@@ -2201,6 +2206,8 @@ interface TautulliImportSectionProps {
   selectedPlexServerId: string;
   setSelectedPlexServerId: (id: string) => void;
   isTautulliImporting: boolean;
+  overwriteFriendlyNames: boolean;
+  setOverwriteFriendlyNames: (overwrite: boolean) => void;
   handleStartTautulliImport: () => Promise<void>;
   tautulliProgressData: ImportProgressData | null;
 }
@@ -2217,6 +2224,8 @@ function TautulliImportSection({
   selectedPlexServerId,
   setSelectedPlexServerId,
   isTautulliImporting,
+  overwriteFriendlyNames,
+  setOverwriteFriendlyNames,
   handleStartTautulliImport,
   tautulliProgressData,
 }: TautulliImportSectionProps) {
@@ -2323,6 +2332,29 @@ function TautulliImportSection({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="flex items-start space-x-3">
+                <Checkbox
+                  id="overwriteFriendlyNames"
+                  checked={overwriteFriendlyNames}
+                  onCheckedChange={(checked: boolean | 'indeterminate') =>
+                    setOverwriteFriendlyNames(checked === true)
+                  }
+                  disabled={isTautulliImporting}
+                />
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="overwriteFriendlyNames"
+                    className="cursor-pointer text-sm font-normal"
+                  >
+                    Overwrite existing friendly names with Tautulli names
+                  </Label>
+                  <p className="text-muted-foreground text-xs">
+                    By default, Tracearr keeps any custom names already set. Enable this to replace
+                    all existing names with the ones from Tautulli.
+                  </p>
+                </div>
               </div>
 
               <Button

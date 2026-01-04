@@ -52,7 +52,7 @@ export const importRoutes: FastifyPluginAsync = async (app) => {
       return reply.forbidden('Only server owners can import data');
     }
 
-    const { serverId } = body.data;
+    const { serverId, overwriteFriendlyNames = false } = body.data;
 
     // Sync server users first to ensure we have all users before importing history
     try {
@@ -66,7 +66,7 @@ export const importRoutes: FastifyPluginAsync = async (app) => {
 
     // Enqueue import job
     try {
-      const jobId = await enqueueImport(serverId, authUser.userId);
+      const jobId = await enqueueImport(serverId, authUser.userId, overwriteFriendlyNames);
 
       return {
         status: 'queued',
@@ -85,7 +85,9 @@ export const importRoutes: FastifyPluginAsync = async (app) => {
       const pubSubService = getPubSubService();
 
       // Start import in background (non-blocking)
-      TautulliService.importHistory(serverId, pubSubService ?? undefined)
+      TautulliService.importHistory(serverId, pubSubService ?? undefined, undefined, {
+        overwriteFriendlyNames,
+      })
         .then((result) => {
           console.log(`[Import] Tautulli import completed:`, result);
         })

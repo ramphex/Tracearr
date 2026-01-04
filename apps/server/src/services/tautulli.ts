@@ -166,7 +166,8 @@ export class TautulliService {
    */
   private static async syncFriendlyNamesFromTautulli(
     serverId: string,
-    tautulli: TautulliService
+    tautulli: TautulliService,
+    overwriteAll: boolean
   ): Promise<number> {
     const tautulliUsers = await tautulli.getUsers();
 
@@ -202,6 +203,9 @@ export class TautulliService {
       if (!friendlyName) continue;
 
       const currentName = row.identityName?.trim();
+      const hasExistingName = !!currentName && currentName.length > 0;
+      if (hasExistingName && !overwriteAll) continue;
+
       if (currentName === friendlyName) continue;
 
       updates.set(row.userId, friendlyName);
@@ -369,8 +373,11 @@ export class TautulliService {
   static async importHistory(
     serverId: string,
     pubSubService?: PubSubService,
-    onProgress?: (progress: TautulliImportProgress) => Promise<void>
+    onProgress?: (progress: TautulliImportProgress) => Promise<void>,
+    options?: { overwriteFriendlyNames?: boolean }
   ): Promise<TautulliImportResult> {
+    const overwriteFriendlyNames = options?.overwriteFriendlyNames ?? false;
+
     // Get Tautulli settings
     const settingsRow = await db.select().from(settings).where(eq(settings.id, 1)).limit(1);
 
@@ -435,7 +442,11 @@ export class TautulliService {
     publishProgress(progress);
 
     try {
-      const updatedNames = await TautulliService.syncFriendlyNamesFromTautulli(serverId, tautulli);
+      const updatedNames = await TautulliService.syncFriendlyNamesFromTautulli(
+        serverId,
+        tautulli,
+        overwriteFriendlyNames
+      );
       if (updatedNames > 0) {
         console.log(`[Import] Updated ${updatedNames} user display names from Tautulli`);
       }

@@ -795,10 +795,10 @@ class ApiClient {
           users?: number;
           historyRecords?: number;
         }>('/import/tautulli/test', { method: 'POST', body: JSON.stringify({ url, apiKey }) }),
-      start: (serverId: string) =>
+      start: (serverId: string, overwriteFriendlyNames: boolean = false) =>
         this.request<{ status: string; jobId?: string; message: string }>('/import/tautulli', {
           method: 'POST',
-          body: JSON.stringify({ serverId }),
+          body: JSON.stringify({ serverId, overwriteFriendlyNames }),
         }),
       getActive: (serverId: string) =>
         this.request<{

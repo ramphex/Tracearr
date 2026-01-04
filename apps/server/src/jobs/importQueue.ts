@@ -26,6 +26,7 @@ export interface TautulliImportJobData {
   serverId: string;
   userId: string; // Audit trail - who initiated the import
   checkpoint?: number; // Resume from this page (for future use)
+  overwriteFriendlyNames?: boolean; // Whether to override existing identity names
 }
 
 export interface JellystatImportJobData {
@@ -191,7 +192,7 @@ async function processImportJob(job: Job<ImportJobData>): Promise<ImportJobResul
 async function processTautulliImportJob(
   job: Job<TautulliImportJobData>
 ): Promise<TautulliImportResult> {
-  const { serverId } = job.data;
+  const { serverId, overwriteFriendlyNames = false } = job.data;
   const pubSubService = getPubSubService();
 
   // Progress callback to update job and publish to WebSocket
@@ -225,7 +226,8 @@ async function processTautulliImportJob(
   const result = await TautulliService.importHistory(
     serverId,
     pubSubService ?? undefined,
-    onProgress
+    onProgress,
+    { overwriteFriendlyNames }
   );
 
   // Publish final result (note: TautulliService already publishes final progress,
@@ -306,7 +308,11 @@ export async function getActiveImportForServer(serverId: string): Promise<string
 /**
  * Enqueue a new import job
  */
-export async function enqueueImport(serverId: string, userId: string): Promise<string> {
+export async function enqueueImport(
+  serverId: string,
+  userId: string,
+  overwriteFriendlyNames: boolean
+): Promise<string> {
   if (!importQueue) {
     throw new Error('Import queue not initialized');
   }
@@ -322,6 +328,7 @@ export async function enqueueImport(serverId: string, userId: string): Promise<s
     type: 'tautulli',
     serverId,
     userId,
+    overwriteFriendlyNames,
   });
 
   const jobId = job.id ?? `unknown-${Date.now()}`;

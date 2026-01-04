@@ -315,6 +315,7 @@ export const updateSettingsSchema = z.object({
 // Tautulli import schemas
 export const tautulliImportSchema = z.object({
   serverId: uuidSchema, // Which Tracearr server to import into
+  overwriteFriendlyNames: z.boolean().optional(), // Whether to overwrite existing identity names
 });
 
 // ============================================================================
