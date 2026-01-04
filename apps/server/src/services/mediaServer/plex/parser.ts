@@ -574,6 +574,9 @@ export interface PlexStatisticsDataPoint {
   processCpuUtilization: number;
   hostMemoryUtilization: number;
   processMemoryUtilization: number;
+  totalBandwidthMbps: number;
+  lanBandwidthMbps: number;
+  wanBandwidthMbps: number;
 }
 
 /**
@@ -587,6 +590,10 @@ function parseStatisticsDataPoint(raw: PlexRawStatisticsResource): PlexStatistic
     processCpuUtilization: parseNumber(raw.processCpuUtilization, 0),
     hostMemoryUtilization: parseNumber(raw.hostMemoryUtilization, 0),
     processMemoryUtilization: parseNumber(raw.processMemoryUtilization, 0),
+    // Network bandwidth is computed server-side using active sessions
+    totalBandwidthMbps: 0,
+    lanBandwidthMbps: 0,
+    wanBandwidthMbps: 0,
   };
 }
 

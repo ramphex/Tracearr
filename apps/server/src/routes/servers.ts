@@ -10,6 +10,39 @@ import { servers } from '../db/schema.js';
 // Token encryption removed - tokens now stored in plain text (DB is localhost-only)
 import { PlexClient, JellyfinClient, EmbyClient } from '../services/mediaServer/index.js';
 import { syncServer } from '../services/sync.js';
+import type { MediaSession } from '../services/mediaServer/types.js';
+import { isPrivateIP } from '../jobs/poller/utils.js';
+
+function calculateBandwidthMbps(sessions: MediaSession[]): {
+  totalMbps: number;
+  lanMbps: number;
+  wanMbps: number;
+} {
+  let lanKbps = 0;
+  let wanKbps = 0;
+
+  for (const session of sessions) {
+    // Skip sessions that aren't actively playing (paused/stopped won't consume bandwidth)
+    if (session.playback.state !== 'playing') continue;
+
+    const bitrateKbps = session.quality.bitrate;
+    if (!bitrateKbps || bitrateKbps <= 0) continue;
+
+    if (isPrivateIP(session.network.ipAddress)) {
+      lanKbps += bitrateKbps;
+    } else {
+      wanKbps += bitrateKbps;
+    }
+  }
+
+  const toMbps = (kbps: number) => Math.round((kbps / 1000) * 10) / 10;
+
+  return {
+    lanMbps: toMbps(lanKbps),
+    wanMbps: toMbps(wanKbps),
+    totalMbps: toMbps(lanKbps + wanKbps),
+  };
+}
 
 export const serverRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -248,11 +281,23 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         token: server.token,
       });
 
-      const data = await client.getServerStatistics(SERVER_STATS_CONFIG.TIMESPAN_SECONDS);
+      const [resourceStats, sessions] = await Promise.all([
+        client.getServerStatistics(SERVER_STATS_CONFIG.TIMESPAN_SECONDS),
+        client.getSessions(),
+      ]);
+
+      const bandwidth = calculateBandwidthMbps(sessions);
+
+      const data = resourceStats.map((point) => ({
+        ...point,
+        totalBandwidthMbps: bandwidth.totalMbps,
+        lanBandwidthMbps: bandwidth.lanMbps,
+        wanBandwidthMbps: bandwidth.wanMbps,
+      }));
 
       // DEBUG: Log what we got back
       app.log.info(
-        { serverId: id, dataLength: data.length, firstItem: data[0] },
+        { serverId: id, dataLength: data.length, bandwidth, firstItem: data[0] },
         'Server statistics fetched'
       );
 
