@@ -890,7 +890,11 @@ export async function initTimescaleDB(): Promise<{
 
   // Check schema version - auto-rebuild if definitions have changed
   const storedVersion = await getStoredSchemaVersion();
-  const needsRebuild = storedVersion !== AGGREGATE_SCHEMA_VERSION && existingAggregates.length > 0;
+  // Rebuild if: version changed AND this isn't a fresh install (storedVersion > 0)
+  // Note: We check storedVersion > 0 instead of existingAggregates.length > 0 because
+  // aggregates might have been dropped but we still need to do a full rebuild to
+  // recreate the dependent views (content_engagement_summary, etc.)
+  const needsRebuild = storedVersion !== AGGREGATE_SCHEMA_VERSION && storedVersion > 0;
 
   if (needsRebuild) {
     actions.push(
