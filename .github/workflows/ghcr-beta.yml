@@ -79,21 +79,41 @@ jobs:
             APP_TAG=${{ steps.ver.outputs.fork_version }}
             APP_COMMIT=${{ steps.ver.outputs.commit }}
             APP_BUILD_DATE=${{ steps.ver.outputs.build_date }}
-
-      - name: Create & push beta fork tag
+      - name: Build & push supervised beta image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.supervised
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/tracearr:supervised-next
+            ghcr.io/${{ github.repository_owner }}/tracearr:supervised-${{ steps.ver.outputs.fork_version }}
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.fork_version }}
+            APP_TAG=supervised-${{ steps.ver.outputs.fork_version }}
+            APP_COMMIT=${{ steps.ver.outputs.commit }}
+            APP_BUILD_DATE=${{ steps.ver.outputs.build_date }}
+      - name: Create & push beta fork tags
         shell: bash
         run: |
           set -euo pipefail
 
-          TAG="${{ steps.ver.outputs.fork_version }}"
+          BASE_TAG="${{ steps.ver.outputs.base_tag }}"
+          FORK_VERSION="${{ steps.ver.outputs.fork_version }}"
+          SUP_TAG="supervised-${FORK_VERSION}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if git rev-parse "${TAG}" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists; skipping"
-            exit 0
-          fi
+          create_tag() {
+            local tag="$1"
+            if git rev-parse "${tag}" >/dev/null 2>&1; then
+              echo "Tag ${tag} already exists; skipping"
+              return 0
+            fi
+            git tag -a "${tag}" -m "Fork beta build ${tag}"
+            git push origin "${tag}"
+          }
 
-          git tag -a "${TAG}" -m "Fork beta build ${TAG}"
-          git push origin "${TAG}"
+          create_tag "${FORK_VERSION}"
+          create_tag "${SUP_TAG}"
