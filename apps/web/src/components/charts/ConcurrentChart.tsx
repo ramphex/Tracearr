@@ -28,9 +28,6 @@ export function ConcurrentChart({
       return {};
     }
 
-    // Find the peak total for highlighting
-    const maxValue = Math.max(...data.map((d) => d.total));
-
     return {
       chart: {
         type: 'area',
