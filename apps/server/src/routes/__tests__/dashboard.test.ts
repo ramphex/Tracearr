@@ -138,8 +138,8 @@ describe('Dashboard Stats Routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body).toEqual(cachedStats);
-      // Cache key now includes timezone (defaults to UTC)
-      expect(redisMock.get).toHaveBeenCalledWith(`${REDIS_KEYS.DASHBOARD_STATS}:UTC`);
+      // Cache key now includes timezone and period (defaults to UTC / day)
+      expect(redisMock.get).toHaveBeenCalledWith(`${REDIS_KEYS.DASHBOARD_STATS}:day:na:na:UTC`);
       // Should not call database when cache hit
       expect(playsCountSince.execute).not.toHaveBeenCalled();
     });
@@ -176,7 +176,7 @@ describe('Dashboard Stats Routes', () => {
 
       // Should cache the results (cache key includes timezone)
       expect(redisMock.setex).toHaveBeenCalledWith(
-        `${REDIS_KEYS.DASHBOARD_STATS}:UTC`,
+        `${REDIS_KEYS.DASHBOARD_STATS}:day:na:na:UTC`,
         60,
         expect.any(String)
       );

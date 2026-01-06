@@ -620,11 +620,8 @@ class ApiClient {
   }
 
   stats = {
-    dashboard: (serverId?: string) => {
-      const params = new URLSearchParams();
-      if (serverId) params.set('serverId', serverId);
-      // Include timezone so "today" is calculated in user's local timezone
-      params.set('timezone', getBrowserTimezone());
+    dashboard: (serverId?: string, timeRange?: StatsTimeRange) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'day' }, serverId);
       return this.request<DashboardStats>(`/stats/dashboard?${params.toString()}`);
     },
     plays: async (timeRange?: StatsTimeRange, serverId?: string) => {

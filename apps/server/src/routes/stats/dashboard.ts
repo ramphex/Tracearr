@@ -37,10 +37,11 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       return reply.badRequest('Invalid query parameters');
     }
 
-    const { serverId, timezone } = query.data;
+    const { serverId, timezone, period, startDate, endDate } = query.data;
     const authUser = request.user;
     // Default to UTC for backwards compatibility
     const tz = timezone ?? 'UTC';
+    const rangeKeyParts = [period ?? 'day', startDate ?? 'na', endDate ?? 'na', tz];
 
     // Validate server access if specific server requested
     if (serverId) {
@@ -52,8 +53,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
 
     // Build cache key (includes server and timezone for correct caching)
     const cacheKey = serverId
-      ? `${REDIS_KEYS.DASHBOARD_STATS}:${serverId}:${tz}`
-      : `${REDIS_KEYS.DASHBOARD_STATS}:${tz}`;
+      ? `${REDIS_KEYS.DASHBOARD_STATS}:${serverId}:${rangeKeyParts.join(':')}`
+      : `${REDIS_KEYS.DASHBOARD_STATS}:${rangeKeyParts.join(':')}`;
 
     // Try cache first
     const cached = await app.redis.get(cacheKey);
@@ -83,9 +84,38 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    // Get today's plays and watch time (using user's timezone for "today")
-    const todayStart = getStartOfDayInTimezone(tz);
-    const last24h = new Date(Date.now() - TIME_MS.DAY);
+    // Get time range start (aligned to user's timezone) and matching alert window
+    const startOfToday = getStartOfDayInTimezone(tz);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+    }).formatToParts(new Date());
+    const dayOfMonth = parseInt(parts.find((p) => p.type === 'day')?.value ?? '1', 10);
+    const weekdayStr = (parts.find((p) => p.type === 'weekday')?.value ?? 'sun').toLowerCase();
+    const weekdayIndex = Math.max(
+      0,
+      ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(weekdayStr)
+    );
+    const startOfWeek = new Date(startOfToday.getTime() - weekdayIndex * TIME_MS.DAY);
+    const startOfMonth = new Date(startOfToday.getTime() - (dayOfMonth - 1) * TIME_MS.DAY);
+    const rangeStart = (() => {
+      switch (period) {
+        case 'week':
+          return startOfWeek;
+        case 'month':
+          return startOfMonth;
+        case 'year':
+          return new Date(startOfToday.getTime() - 365 * TIME_MS.DAY);
+        case 'all':
+          return new Date(0);
+        default:
+          return startDate ? new Date(startDate) : startOfToday;
+      }
+    })();
+    const alertsSince = period === 'day' ? new Date(Date.now() - TIME_MS.DAY) : rangeStart;
 
     // If no serverId and user is owner, use prepared statements for performance
     // Otherwise, use dynamic queries with server filtering
@@ -105,14 +135,14 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         activeUsersResult,
         validatedPlaysResult,
       ] = await Promise.all([
-        playsCountSince.execute({ since: todayStart }),
-        watchTimeSince.execute({ since: todayStart }),
-        violationsCountSince.execute({ since: last24h }),
-        uniqueUsersSince.execute({ since: todayStart }),
+        playsCountSince.execute({ since: rangeStart }),
+        watchTimeSince.execute({ since: rangeStart }),
+        violationsCountSince.execute({ since: alertsSince }),
+        uniqueUsersSince.execute({ since: rangeStart }),
         db.execute(sql`
             SELECT COUNT(DISTINCT COALESCE(reference_id, id))::int as count
             FROM sessions
-            WHERE (started_at AT TIME ZONE ${tz})::date = (NOW() AT TIME ZONE ${tz})::date
+            WHERE started_at >= ${rangeStart}
               AND duration_ms >= ${MIN_PLAY_DURATION_MS}
               ${MEDIA_TYPE_SQL_FILTER}
           `),
@@ -196,7 +226,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             count: sql<number>`count(DISTINCT COALESCE(reference_id, id))::int`,
           })
           .from(sessions)
-          .where(and(...buildSessionConditions(todayStart))),
+          .where(and(...buildSessionConditions(rangeStart))),
 
         // Watch time
         db
@@ -204,7 +234,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             totalMs: sql<number>`COALESCE(SUM(duration_ms), 0)::bigint`,
           })
           .from(sessions)
-          .where(and(...buildSessionConditions(todayStart))),
+          .where(and(...buildSessionConditions(rangeStart))),
 
         // Violations count (join through serverUsers for server filtering)
         db
@@ -213,7 +243,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             SELECT count(*)::int as count
             FROM violations v
             INNER JOIN server_users su ON su.id = v.server_user_id
-            WHERE v.created_at >= ${last24h}
+            WHERE v.created_at >= ${alertsSince}
             ${buildViolationServerFilter()}
           `
           )
@@ -225,12 +255,12 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             count: sql<number>`count(DISTINCT server_user_id)::int`,
           })
           .from(sessions)
-          .where(and(...buildSessionConditions(todayStart))),
+          .where(and(...buildSessionConditions(rangeStart))),
 
         db.execute(sql`
             SELECT COUNT(DISTINCT COALESCE(reference_id, id))::int as count
             FROM sessions
-            WHERE (started_at AT TIME ZONE ${tz})::date = (NOW() AT TIME ZONE ${tz})::date
+            WHERE started_at >= ${rangeStart}
               AND duration_ms >= ${MIN_PLAY_DURATION_MS}
               ${MEDIA_TYPE_SQL_FILTER}
             ${buildSessionServerFilter()}

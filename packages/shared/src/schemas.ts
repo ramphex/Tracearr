@@ -218,15 +218,11 @@ export const timezoneSchema = z
   .refine(isValidTimezone, { message: 'Invalid IANA timezone identifier' })
   .optional();
 
-// Dashboard query schema with timezone support
-export const dashboardQuerySchema = z.object({
-  serverId: uuidSchema.optional(),
-  timezone: timezoneSchema,
-});
+const statsPeriodSchema = z.enum(['day', 'week', 'month', 'year', 'all', 'custom']);
 
 export const statsQuerySchema = z
   .object({
-    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('week'),
+    period: statsPeriodSchema.default('week'),
     startDate: z.iso.datetime().optional(),
     endDate: z.iso.datetime().optional(),
     serverId: uuidSchema.optional(),
@@ -252,6 +248,12 @@ export const statsQuerySchema = z
     },
     { message: 'startDate must be before endDate' }
   );
+
+// Dashboard query schema with timezone support
+export const dashboardQuerySchema = statsQuerySchema.safeExtend({
+  // Dashboard defaults to "today" while reusing the shared stats query shape
+  period: statsPeriodSchema.default('day'),
+});
 
 // Location stats with full filtering - uses same period system as statsQuerySchema
 export const locationStatsQuerySchema = z

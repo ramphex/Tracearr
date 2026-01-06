@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Play, Clock, AlertTriangle, Tv, MapPin, Calendar, Users, Activity } from 'lucide-react';
+import {
+  Play,
+  Clock,
+  AlertTriangle,
+  Tv,
+  MapPin,
+  Calendar,
+  Users,
+  Activity,
+  ChevronDown,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { StatCard } from '@/components/ui/stat-card';
 import { NowPlayingCard } from '@/components/sessions';
@@ -10,10 +20,17 @@ import { useDashboardStats, useActiveSessions } from '@/hooks/queries';
 import { useServerStatistics } from '@/hooks/queries/useServers';
 import { useServer } from '@/hooks/useServer';
 import type { ActiveSession } from '@tracearr/shared';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export function Dashboard() {
   const { selectedServerId, selectedServer } = useServer();
-  const { data: stats, isLoading: statsLoading } = useDashboardStats(selectedServerId);
+  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('day');
+  const { data: stats, isLoading: statsLoading } = useDashboardStats(selectedServerId, { period });
   const { data: sessions } = useActiveSessions(selectedServerId);
 
   // Session detail sheet state
@@ -32,6 +49,7 @@ export function Dashboard() {
 
   const activeCount = sessions?.length ?? 0;
   const hasActiveStreams = activeCount > 0;
+  const periodLabel = period === 'week' ? 'This Week' : period === 'month' ? 'This Month' : 'Today';
 
   return (
     <div className="space-y-6">
@@ -39,7 +57,24 @@ export function Dashboard() {
       <section>
         <div className="mb-4 flex items-center gap-2">
           <Calendar className="text-primary h-5 w-5" />
-          <h2 className="text-lg font-semibold">Today</h2>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="hover:text-primary text-left text-lg font-semibold outline-none"
+              >
+                <span className="inline-flex items-center gap-1">
+                  {periodLabel}
+                  <ChevronDown className="h-4 w-4" />
+                </span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => setPeriod('day')}>Today</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setPeriod('week')}>This Week</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setPeriod('month')}>This Month</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
