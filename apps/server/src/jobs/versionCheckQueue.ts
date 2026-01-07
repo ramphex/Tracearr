@@ -13,9 +13,9 @@ import { REDIS_KEYS, CACHE_TTL, WS_EVENTS } from '@tracearr/shared';
 const QUEUE_NAME = 'version-check';
 
 // GitHub API configuration
-const GITHUB_API_LATEST_URL = 'https://api.github.com/repos/connorgallopo/Tracearr/releases/latest';
-const GITHUB_API_ALL_RELEASES_URL = 'https://api.github.com/repos/connorgallopo/Tracearr/releases';
-const GITHUB_RELEASES_URL = 'https://github.com/connorgallopo/Tracearr/releases';
+const GITHUB_API_LATEST_URL = 'https://api.github.com/repos/ramphex/Tracearr/releases/latest';
+const GITHUB_API_ALL_RELEASES_URL = 'https://api.github.com/repos/ramphex/Tracearr/releases';
+const GITHUB_RELEASES_URL = 'https://github.com/ramphex/Tracearr/releases';
 
 // Prerelease identifier patterns (beta, alpha, rc, etc.)
 const PRERELEASE_PATTERN = /-(alpha|beta|rc|next|dev|canary)\.?\d*$/i;
