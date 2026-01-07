@@ -123,12 +123,18 @@ export function getBitrate(session: Record<string, unknown>): number {
 
   // Fall back to source media bitrate
   const nowPlaying = getNestedObject(session, 'NowPlayingItem');
+
+  // Jellyfin: NowPlayingItem.MediaSources[0].Bitrate
   const mediaSources = nowPlaying?.MediaSources;
   if (Array.isArray(mediaSources) && mediaSources.length > 0) {
     const firstSource = mediaSources[0] as Record<string, unknown>;
     const bitrate = parseNumber(firstSource?.Bitrate);
-    return Math.round(bitrate / 1000);
+    if (bitrate > 0) return Math.round(bitrate / 1000);
   }
+
+  // Emby: NowPlayingItem.Bitrate (directly on item)
+  const itemBitrate = parseNumber(nowPlaying?.Bitrate);
+  if (itemBitrate > 0) return Math.round(itemBitrate / 1000);
 
   return 0;
 }
@@ -156,23 +162,31 @@ export function getVideoDimensions(session: Record<string, unknown>): {
 
   // Fall back to source media dimensions
   const nowPlaying = getNestedObject(session, 'NowPlayingItem');
+
+  // Get MediaStreams - Jellyfin style or Emby style
   const mediaSources = nowPlaying?.MediaSources;
+  let mediaStreams: unknown[] | undefined;
   if (Array.isArray(mediaSources) && mediaSources.length > 0) {
     const firstSource = mediaSources[0] as Record<string, unknown>;
-    const mediaStreams = firstSource?.MediaStreams;
-    if (Array.isArray(mediaStreams)) {
-      // Find the video stream (Type === 'Video')
-      for (const stream of mediaStreams) {
-        const streamObj = stream as Record<string, unknown>;
-        if (parseOptionalString(streamObj.Type)?.toLowerCase() === 'video') {
-          const width = parseOptionalNumber(streamObj.Width);
-          const height = parseOptionalNumber(streamObj.Height);
-          if ((width && width > 0) || (height && height > 0)) {
-            return {
-              videoWidth: width && width > 0 ? width : undefined,
-              videoHeight: height && height > 0 ? height : undefined,
-            };
-          }
+    mediaStreams = firstSource?.MediaStreams as unknown[] | undefined;
+  }
+  // Emby: NowPlayingItem.MediaStreams (directly on item)
+  if (!mediaStreams && Array.isArray(nowPlaying?.MediaStreams)) {
+    mediaStreams = nowPlaying.MediaStreams as unknown[];
+  }
+
+  if (Array.isArray(mediaStreams)) {
+    // Find the video stream (Type === 'Video')
+    for (const stream of mediaStreams) {
+      const streamObj = stream as Record<string, unknown>;
+      if (parseOptionalString(streamObj.Type)?.toLowerCase() === 'video') {
+        const width = parseOptionalNumber(streamObj.Width);
+        const height = parseOptionalNumber(streamObj.Height);
+        if ((width && width > 0) || (height && height > 0)) {
+          return {
+            videoWidth: width && width > 0 ? width : undefined,
+            videoHeight: height && height > 0 ? height : undefined,
+          };
         }
       }
     }
@@ -664,9 +678,13 @@ export function extractStreamDetails(session: Record<string, unknown>): StreamDe
   const transcodingInfo = getNestedObject(session, 'TranscodingInfo');
 
   // Get MediaSources and MediaStreams
+  // Jellyfin: NowPlayingItem.MediaSources[0].MediaStreams
+  // Emby: NowPlayingItem.MediaStreams (directly on item)
   const mediaSources = nowPlaying?.MediaSources as Array<Record<string, unknown>> | undefined;
   const mediaSource = mediaSources?.[0];
-  const mediaStreams = mediaSource?.MediaStreams as Array<Record<string, unknown>> | undefined;
+  const mediaStreams =
+    (mediaSource?.MediaStreams as Array<Record<string, unknown>> | undefined) ??
+    (nowPlaying?.MediaStreams as Array<Record<string, unknown>> | undefined);
 
   // Find streams by type
   const videoStream = findStreamByType(mediaStreams, STREAM_TYPE.VIDEO);
