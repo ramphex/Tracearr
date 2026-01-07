@@ -401,7 +401,6 @@ function extractStreamDetails(
   const audioStream = findStreamByType(part, STREAM_TYPE.AUDIO);
   const subtitleStream = findStreamByType(part, STREAM_TYPE.SUBTITLE);
 
-  // Extract source details
   const sourceVideo = extractSourceVideoDetails(videoStream, selectedMedia);
   const sourceAudio = extractSourceAudioDetails(audioStream);
 
@@ -413,6 +412,19 @@ function extractStreamDetails(
   const transcodeInfo = extractTranscodeInfo(transcodeSession, part);
   const subtitleInfo = extractSubtitleInfo(subtitleStream);
 
+  // CRITICAL: When transcoding, Plex's Stream[] array contains OUTPUT streams, not source streams.
+  // The TranscodeSession object provides the actual source codec information:
+  // - TranscodeSession.sourceVideoCodec / sourceAudioCodec = original file's codec
+  // - TranscodeSession.videoCodec / audioCodec = transcoded output codec
+  // - Stream[].codec = also the output codec when transcoding
+  // Only fall back to Stream[].codec for direct play (no TranscodeSession).
+  const transcodeSourceVideoCodec = parseOptionalString(transcodeSession?.sourceVideoCodec);
+  const transcodeSourceAudioCodec = parseOptionalString(transcodeSession?.sourceAudioCodec);
+
+  // Use TranscodeSession source codecs when transcoding, otherwise stream codec (direct play)
+  const resolvedSourceVideoCodec = transcodeSourceVideoCodec?.toUpperCase() ?? sourceVideo.codec;
+  const resolvedSourceAudioCodec = transcodeSourceAudioCodec?.toUpperCase() ?? sourceAudio.codec;
+
   // Handle '*' codec placeholder (Plex uses '*' when transcoding, fallback to source codec)
   const resolveCodec = (
     streamCodec: string | undefined,
@@ -421,11 +433,11 @@ function extractStreamDetails(
 
   return {
     // Scalar fields for indexing
-    sourceVideoCodec: sourceVideo.codec,
-    sourceAudioCodec: sourceAudio.codec,
+    sourceVideoCodec: resolvedSourceVideoCodec,
+    sourceAudioCodec: resolvedSourceAudioCodec,
     sourceAudioChannels: sourceAudio.channels,
-    streamVideoCodec: resolveCodec(streamVideo.codec, sourceVideo.codec),
-    streamAudioCodec: resolveCodec(streamAudio.codec, sourceAudio.codec),
+    streamVideoCodec: resolveCodec(streamVideo.codec, resolvedSourceVideoCodec),
+    streamAudioCodec: resolveCodec(streamAudio.codec, resolvedSourceAudioCodec),
 
     // JSONB details (only include if non-empty)
     sourceVideoDetails:
