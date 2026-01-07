@@ -89,12 +89,14 @@ export function Dashboard() {
             label="Alerts"
             value={stats?.alertsLast24h ?? 0}
             isLoading={statsLoading}
+            href="/violations"
           />
           <StatCard
             icon={Play}
             label="Plays"
             value={stats?.todayPlays ?? 0}
             isLoading={statsLoading}
+            href="/history"
             subValue={
               stats?.todaySessions && stats.todaySessions > stats.todayPlays
                 ? `${stats.todaySessions} sessions`
@@ -106,12 +108,14 @@ export function Dashboard() {
             label="Watch Time"
             value={`${stats?.watchTimeHours ?? 0}h`}
             isLoading={statsLoading}
+            href="/stats/activity"
           />
           <StatCard
             icon={Users}
             label="Active Users"
             value={stats?.activeUsersToday ?? 0}
             isLoading={statsLoading}
+            href="/stats/users"
           />
         </div>
       </section>
