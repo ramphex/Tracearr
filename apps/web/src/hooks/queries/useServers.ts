@@ -95,7 +95,9 @@ export function useServerStatistics(serverId: string | undefined, enabled: boole
 
     // Add/update data points
     for (const point of newData) {
-      map.set(point.at, point);
+      if (!map.has(point.at)) {
+        map.set(point.at, point);
+      }
     }
 
     // Sort by timestamp descending (newest first), keep DATA_POINTS
@@ -153,6 +155,19 @@ export function useServerStatistics(serverId: string | undefined, enabled: boole
           processMemory: Math.round(
             dataPoints.reduce((sum: number, p) => sum + p.processMemoryUtilization, 0) / dataLength
           ),
+          totalBandwidth:
+            Math.round(
+              (dataPoints.reduce((sum: number, p) => sum + p.totalBandwidthMbps, 0) / dataLength) *
+                10
+            ) / 10,
+          lanBandwidth:
+            Math.round(
+              (dataPoints.reduce((sum: number, p) => sum + p.lanBandwidthMbps, 0) / dataLength) * 10
+            ) / 10,
+          wanBandwidth:
+            Math.round(
+              (dataPoints.reduce((sum: number, p) => sum + p.wanBandwidthMbps, 0) / dataLength) * 10
+            ) / 10,
         }
       : null;
 

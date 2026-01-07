@@ -1,5 +1,5 @@
 /**
- * Hook for fetching server resource statistics (CPU/RAM)
+ * Hook for fetching server resource statistics (CPU/RAM/Network)
  * Only polls when:
  * 1. App is in foreground (AppState === 'active')
  * 2. Dashboard tab is focused (useIsFocused)
@@ -49,7 +49,9 @@ export function useServerStatistics(serverId: string | undefined, enabled: boole
 
     // Add/update data points
     for (const point of newData) {
-      map.set(point.at, point);
+      if (!map.has(point.at)) {
+        map.set(point.at, point);
+      }
     }
 
     // Sort by timestamp descending (newest first), keep DATA_POINTS
@@ -103,6 +105,19 @@ export function useServerStatistics(serverId: string | undefined, enabled: boole
           processMemory: Math.round(
             dataPoints.reduce((sum: number, p) => sum + p.processMemoryUtilization, 0) / dataLength
           ),
+          totalBandwidth:
+            Math.round(
+              (dataPoints.reduce((sum: number, p) => sum + p.totalBandwidthMbps, 0) / dataLength) *
+                10
+            ) / 10,
+          lanBandwidth:
+            Math.round(
+              (dataPoints.reduce((sum: number, p) => sum + p.lanBandwidthMbps, 0) / dataLength) * 10
+            ) / 10,
+          wanBandwidth:
+            Math.round(
+              (dataPoints.reduce((sum: number, p) => sum + p.wanBandwidthMbps, 0) / dataLength) * 10
+            ) / 10,
         }
       : null;
 
@@ -114,6 +129,9 @@ export function useServerStatistics(serverId: string | undefined, enabled: boole
         processCpu: Math.round(lastDataPoint.processCpuUtilization),
         hostMemory: Math.round(lastDataPoint.hostMemoryUtilization),
         processMemory: Math.round(lastDataPoint.processMemoryUtilization),
+        totalBandwidth: Math.round(lastDataPoint.totalBandwidthMbps * 10) / 10,
+        lanBandwidth: Math.round(lastDataPoint.lanBandwidthMbps * 10) / 10,
+        wanBandwidth: Math.round(lastDataPoint.wanBandwidthMbps * 10) / 10,
       }
     : null;
 

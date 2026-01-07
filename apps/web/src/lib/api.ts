@@ -453,6 +453,9 @@ class ApiClient {
           processCpuUtilization: number;
           hostMemoryUtilization: number;
           processMemoryUtilization: number;
+          totalBandwidthMbps: number;
+          lanBandwidthMbps: number;
+          wanBandwidthMbps: number;
         }[];
         fetchedAt: string;
       }>(`/servers/${id}/statistics`),

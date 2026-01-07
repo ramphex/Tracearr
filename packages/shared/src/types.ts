@@ -569,6 +569,12 @@ export interface ServerResourceDataPoint {
   hostMemoryUtilization: number;
   /** Plex process memory utilization percentage */
   processMemoryUtilization: number;
+  /** Total active streaming bandwidth in Mbps (LAN + WAN) */
+  totalBandwidthMbps: number;
+  /** Active streaming bandwidth from LAN/private clients in Mbps */
+  lanBandwidthMbps: number;
+  /** Active streaming bandwidth from WAN/public clients in Mbps */
+  wanBandwidthMbps: number;
 }
 
 export interface ServerResourceStats {
