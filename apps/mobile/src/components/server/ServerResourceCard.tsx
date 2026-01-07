@@ -1,5 +1,5 @@
 /**
- * Server resource monitoring card (CPU + RAM)
+ * Server resource monitoring card (CPU + RAM + Network)
  * Displays real-time server resource utilization with progress bars
  * Note: Section header is rendered by parent - this is just the card content
  *
@@ -117,6 +117,9 @@ interface ServerResourceCardProps {
     processCpu: number;
     hostMemory: number;
     processMemory: number;
+    totalBandwidth?: number;
+    lanBandwidth?: number;
+    wanBandwidth?: number;
   } | null;
   isLoading?: boolean;
   error?: Error | null;

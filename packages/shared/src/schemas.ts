@@ -318,6 +318,7 @@ export const updateSettingsSchema = z.object({
 export const tautulliImportSchema = z.object({
   serverId: uuidSchema, // Which Tracearr server to import into
   overwriteFriendlyNames: z.boolean().optional(), // Whether to overwrite existing identity names
+  includeStreamDetails: z.boolean().optional(), // (BETA) Fetch detailed codec/bitrate info via additional API calls
 });
 
 // ============================================================================
