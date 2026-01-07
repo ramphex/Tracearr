@@ -22,6 +22,7 @@ interface ThemeProviderProps {
   defaultTheme?: Theme;
   storageKey?: string;
   accentStorageKey?: string;
+  privacyStorageKey?: string;
 }
 
 interface ThemeProviderState {
@@ -29,6 +30,9 @@ interface ThemeProviderState {
   setTheme: (theme: Theme) => void;
   accentHue: number;
   setAccentHue: (hue: number) => void;
+  privacyMode: boolean;
+  setPrivacyMode: (enabled: boolean) => void;
+  togglePrivacyMode: () => void;
 }
 
 const initialState: ThemeProviderState = {
@@ -36,6 +40,9 @@ const initialState: ThemeProviderState = {
   setTheme: () => null,
   accentHue: DEFAULT_ACCENT_HUE,
   setAccentHue: () => null,
+  privacyMode: false,
+  setPrivacyMode: () => null,
+  togglePrivacyMode: () => null,
 };
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
@@ -45,6 +52,7 @@ export function ThemeProvider({
   defaultTheme = 'dark',
   storageKey = 'tracearr-theme',
   accentStorageKey = 'tracearr-accent-hue',
+  privacyStorageKey = 'tracearr-privacy-mode',
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
@@ -60,6 +68,10 @@ export function ThemeProvider({
       }
     }
     return DEFAULT_ACCENT_HUE;
+  });
+
+  const [privacyMode, setPrivacyModeState] = useState<boolean>(() => {
+    return localStorage.getItem(privacyStorageKey) === 'true';
   });
 
   // Apply theme class to root element
@@ -96,6 +108,18 @@ export function ThemeProvider({
       const normalizedHue = ((hue % 360) + 360) % 360;
       localStorage.setItem(accentStorageKey, String(normalizedHue));
       setAccentHueState(normalizedHue);
+    },
+    privacyMode,
+    setPrivacyMode: (enabled: boolean) => {
+      localStorage.setItem(privacyStorageKey, enabled ? 'true' : 'false');
+      setPrivacyModeState(enabled);
+    },
+    togglePrivacyMode: () => {
+      setPrivacyModeState((prev) => {
+        const next = !prev;
+        localStorage.setItem(privacyStorageKey, next ? 'true' : 'false');
+        return next;
+      });
     },
   };
 

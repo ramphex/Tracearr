@@ -4,12 +4,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
 import { useTheme } from '@/components/theme-provider';
 
 export function ModeToggle() {
-  const { setTheme } = useTheme();
+  const { setTheme, privacyMode, setPrivacyMode } = useTheme();
 
   return (
     <DropdownMenu>
@@ -24,6 +26,14 @@ export function ModeToggle() {
         <DropdownMenuItem onClick={() => setTheme('light')}>Light</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme('dark')}>Dark</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme('system')}>System</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="flex items-center justify-between gap-3"
+          onSelect={(event) => event.preventDefault()}
+        >
+          <span className="text-sm">Privacy Mode</span>
+          <Switch checked={privacyMode} onCheckedChange={(checked) => setPrivacyMode(checked)} />
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
