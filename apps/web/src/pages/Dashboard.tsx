@@ -32,6 +32,11 @@ export function Dashboard() {
 
   const activeCount = sessions?.length ?? 0;
   const hasActiveStreams = activeCount > 0;
+  const transcodeCount = sessions?.filter((session) => session.isTranscode).length ?? 0;
+  const directPlayCount = Math.max(0, activeCount - transcodeCount);
+  const latestBandwidthMbps = serverStats?.data?.slice(-1)[0]?.totalBandwidthMbps ?? null;
+  const formattedBandwidth =
+    latestBandwidthMbps !== null ? `${latestBandwidthMbps.toFixed(1)} Mbps` : '—';
 
   return (
     <div className="space-y-6">
@@ -76,13 +81,24 @@ export function Dashboard() {
 
       {/* Now Playing Section */}
       <section>
-        <div className="mb-4 flex items-center gap-2">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <Tv className="text-primary h-5 w-5" />
           <h2 className="text-lg font-semibold">Now Playing</h2>
           {hasActiveStreams && (
-            <span className="bg-muted text-foreground rounded-full px-2 py-0.5 text-xs font-medium">
-              {activeCount} {activeCount === 1 ? 'stream' : 'streams'}
-            </span>
+            <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs font-medium">
+              <span className="bg-muted text-foreground rounded-full px-2 py-0.5">
+                {activeCount} {activeCount === 1 ? 'stream' : 'streams'}
+              </span>
+              <span className="bg-muted text-foreground rounded-full px-2 py-0.5">
+                Direct: {directPlayCount}
+              </span>
+              <span className="bg-muted text-foreground rounded-full px-2 py-0.5">
+                Transcode: {transcodeCount}
+              </span>
+              <span className="bg-muted text-foreground rounded-full px-2 py-0.5">
+                Bandwidth: {formattedBandwidth}
+              </span>
+            </div>
           )}
         </div>
 
