@@ -123,36 +123,32 @@ interface StreamCardProps {
   height?: number | string;
 }
 
+interface DisplayPoint {
+  lat: number;
+  lon: number;
+}
+
 // Component to fit bounds when data changes
 function MapBoundsUpdater({
-  sessions,
-  locations,
+  sessionPoints,
+  locationPoints,
 }: {
-  sessions?: ActiveSession[];
-  locations?: LocationStats[];
+  sessionPoints?: DisplayPoint[];
+  locationPoints?: DisplayPoint[];
 }) {
   const map = useMap();
 
   useEffect(() => {
     const points: [number, number][] = [];
 
-    sessions?.forEach((s) => {
-      if (s.geoLat && s.geoLon) {
-        points.push([s.geoLat, s.geoLon]);
-      }
-    });
-
-    locations?.forEach((l) => {
-      if (l.lat && l.lon) {
-        points.push([l.lat, l.lon]);
-      }
-    });
+    sessionPoints?.forEach((p) => points.push([p.lat, p.lon]));
+    locationPoints?.forEach((p) => points.push([p.lat, p.lon]));
 
     if (points.length > 0) {
       const bounds = L.latLngBounds(points);
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 10 });
     }
-  }, [sessions, locations, map]);
+  }, [sessionPoints, locationPoints, map]);
 
   return null;
 }
@@ -163,10 +159,77 @@ const TILE_URLS = {
   light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
 };
 
+// Deterministic pseudo-random generator for stable jitter
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function seededRandom(seed: string, min: number, max: number) {
+  const h = hashString(seed);
+  const x = Math.sin(h) * 10000;
+  const fraction = x - Math.floor(x);
+  return min + fraction * (max - min);
+}
+
+// Smiley face offsets around a center point (lat, lon)
+const SMILEY_OFFSETS: DisplayPoint[] = [
+  { lat: 8, lon: -12 }, // left eye
+  { lat: 8, lon: 12 }, // right eye
+  { lat: -2, lon: -12 }, // mouth start
+  { lat: -6, lon: -6 },
+  { lat: -8, lon: -2 },
+  { lat: -8, lon: 2 },
+  { lat: -6, lon: 6 },
+  { lat: -2, lon: 12 }, // mouth end
+  { lat: 0, lon: 0 }, // nose/center
+];
+
+function getPrivacyPosition(seed: string, index: number): DisplayPoint {
+  const base = { lat: 20, lon: 0 };
+
+  if (index < SMILEY_OFFSETS.length) {
+    return {
+      lat: base.lat + SMILEY_OFFSETS[index]!.lat,
+      lon: base.lon + SMILEY_OFFSETS[index]!.lon,
+    };
+  }
+
+  // Spread jittered points around the center for overflow
+  const latOffset = seededRandom(`${seed}-lat-${index}`, -25, 25);
+  const lonOffset = seededRandom(`${seed}-lon-${index}`, -40, 40);
+
+  return { lat: base.lat + latOffset, lon: base.lon + lonOffset };
+}
+
+// Obfuscate text deterministically for privacy mode
+function scrambleText(text: string): string {
+  const baseSeed = text.length || 1;
+  return text
+    .split('')
+    .map((char, index) => {
+      if (/[a-zA-Z]/.test(char)) {
+        const isUpper = char === char.toUpperCase();
+        const offset = (char.toLowerCase().charCodeAt(0) - 97 + baseSeed + index * 7) % 26;
+        const scrambled = String.fromCharCode(97 + offset);
+        return isUpper ? scrambled.toUpperCase() : scrambled;
+      }
+      if (/[0-9]/.test(char)) {
+        return String((parseInt(char, 10) + baseSeed + index) % 10);
+      }
+      return char;
+    })
+    .join('');
+}
+
 export function StreamCard({ sessions, locations, className, height = 300 }: StreamCardProps) {
+  const { theme, privacyMode } = useTheme();
   const hasData =
     sessions?.some((s) => s.geoLat && s.geoLon) || locations?.some((l) => l.lat && l.lon);
-  const { theme } = useTheme();
   const resolvedTheme =
     theme === 'system'
       ? window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -174,6 +237,32 @@ export function StreamCard({ sessions, locations, className, height = 300 }: Str
         : 'light'
       : theme;
   const tileUrl = TILE_URLS[resolvedTheme];
+
+  const sessionPointMap = new Map<string, DisplayPoint>();
+  sessions?.forEach((session, index) => {
+    if (session.geoLat == null || session.geoLon == null) return;
+
+    if (privacyMode) {
+      sessionPointMap.set(session.id, getPrivacyPosition(`session-${session.id}`, index));
+    } else {
+      sessionPointMap.set(session.id, { lat: session.geoLat, lon: session.geoLon });
+    }
+  });
+
+  const locationPointMap = new Map<string, DisplayPoint>();
+  locations?.forEach((location, index) => {
+    if (location.lat == null || location.lon == null) return;
+
+    const key = `${location.city}-${location.country}-${index}`;
+    if (privacyMode) {
+      locationPointMap.set(
+        key,
+        getPrivacyPosition(`location-${location.city}-${location.country}`, index)
+      );
+    } else {
+      locationPointMap.set(key, { lat: location.lat, lon: location.lon });
+    }
+  });
 
   return (
     <div className={cn('relative overflow-hidden rounded-lg', className)} style={{ height }}>
@@ -191,19 +280,33 @@ export function StreamCard({ sessions, locations, className, height = 300 }: Str
           url={tileUrl}
         />
 
-        <MapBoundsUpdater sessions={sessions} locations={locations} />
+        <MapBoundsUpdater
+          sessionPoints={Array.from(sessionPointMap.values())}
+          locationPoints={Array.from(locationPointMap.values())}
+        />
 
         {/* Active session markers */}
         {sessions?.map((session) => {
-          if (!session.geoLat || !session.geoLon) return null;
+          if (session.geoLat == null || session.geoLon == null) return null;
+
+          const basePoint = { lat: session.geoLat, lon: session.geoLon };
+          const displayPoint = privacyMode
+            ? (sessionPointMap.get(session.id) ?? basePoint)
+            : basePoint;
 
           const avatarUrl = getAvatarUrl(session.serverId, session.user.thumbUrl, 32);
           const { primary: mediaTitle, secondary: mediaSubtitle } = formatMediaTitle(session);
+          const displayUserName = privacyMode
+            ? scrambleText(session.user.identityName ?? session.user.username)
+            : (session.user.identityName ?? session.user.username);
+          const displayLocation = privacyMode
+            ? scrambleText(session.geoCity || getCountryName(session.geoCountry) || 'Unknown')
+            : session.geoCity || getCountryName(session.geoCountry);
 
           return (
             <Marker
               key={session.id}
-              position={[session.geoLat, session.geoLon]}
+              position={[displayPoint.lat, displayPoint.lon]}
               icon={activeSessionIcon}
             >
               <Popup>
@@ -224,9 +327,17 @@ export function StreamCard({ sessions, locations, className, height = 300 }: Str
                   {/* User - clickable */}
                   <Link
                     to={`/users/${session.user.id}`}
-                    className="mt-2 flex items-center gap-2 py-1 transition-opacity hover:opacity-80"
+                    className={cn(
+                      'mt-2 flex items-center gap-2 py-1 transition-opacity hover:opacity-80',
+                      privacyMode && 'pointer-events-none'
+                    )}
                   >
-                    <div className="bg-muted flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
+                    <div
+                      className={cn(
+                        'bg-muted flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full',
+                        privacyMode && 'blur-[2px]'
+                      )}
+                    >
                       {avatarUrl ? (
                         <img
                           src={avatarUrl}
@@ -237,8 +348,10 @@ export function StreamCard({ sessions, locations, className, height = 300 }: Str
                         <User className="text-muted-foreground h-3 w-3" />
                       )}
                     </div>
-                    <span className="text-xs font-medium">
-                      {session.user.identityName ?? session.user.username}
+                    <span
+                      className={cn('text-xs font-medium', privacyMode && 'blur-[2px] select-none')}
+                    >
+                      {displayUserName}
                     </span>
                   </Link>
 
@@ -247,8 +360,8 @@ export function StreamCard({ sessions, locations, className, height = 300 }: Str
                     {(session.geoCity || session.geoCountry) && (
                       <>
                         <MapPin className="h-3 w-3 flex-shrink-0" />
-                        <span className="truncate">
-                          {session.geoCity || getCountryName(session.geoCountry)}
+                        <span className={cn('truncate', privacyMode && 'blur-[2px] select-none')}>
+                          {displayLocation}
                         </span>
                       </>
                     )}
@@ -267,12 +380,22 @@ export function StreamCard({ sessions, locations, className, height = 300 }: Str
 
         {/* Location stats markers */}
         {locations?.map((location, idx) => {
-          if (!location.lat || !location.lon) return null;
+          if (location.lat == null || location.lon == null) return null;
+
+          const key = `${location.city}-${location.country}-${idx}`;
+          const basePoint = { lat: location.lat, lon: location.lon };
+          const displayPoint = privacyMode ? (locationPointMap.get(key) ?? basePoint) : basePoint;
+          const displayCity = privacyMode
+            ? scrambleText(location.city || 'Unknown')
+            : location.city || 'Unknown';
+          const displayCountry = privacyMode
+            ? scrambleText(location.country || '')
+            : location.country;
 
           return (
             <Marker
               key={`${location.city}-${location.country}-${idx}`}
-              position={[location.lat, location.lon]}
+              position={[displayPoint.lat, displayPoint.lon]}
               icon={locationIcon}
             >
               <Popup>
@@ -280,8 +403,17 @@ export function StreamCard({ sessions, locations, className, height = 300 }: Str
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-blue-500" />
                     <div>
-                      <p className="font-semibold">{location.city || 'Unknown'}</p>
-                      <p className="text-muted-foreground text-xs">{location.country}</p>
+                      <p className={cn('font-semibold', privacyMode && 'blur-[2px] select-none')}>
+                        {displayCity}
+                      </p>
+                      <p
+                        className={cn(
+                          'text-muted-foreground text-xs',
+                          privacyMode && 'blur-[2px] select-none'
+                        )}
+                      >
+                        {displayCountry}
+                      </p>
                     </div>
                   </div>
                   <div className="border-border mt-2 flex items-center justify-between border-t pt-2 text-sm">

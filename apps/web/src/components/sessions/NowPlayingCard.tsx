@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn, getCountryName } from '@/lib/utils';
+import { useTheme } from '@/components/theme-provider';
 import { useEstimatedProgress } from '@/hooks/useEstimatedProgress';
 import { useAuth } from '@/hooks/useAuth';
 import { TerminateSessionDialog } from './TerminateSessionDialog';
@@ -87,9 +88,30 @@ function getMediaDisplay(session: ActiveSession): { title: string; subtitle: str
   };
 }
 
+// Obfuscate text deterministically for privacy mode
+function scrambleText(text: string): string {
+  const baseSeed = text.length || 1;
+  return text
+    .split('')
+    .map((char, index) => {
+      if (/[a-zA-Z]/.test(char)) {
+        const isUpper = char === char.toUpperCase();
+        const offset = (char.toLowerCase().charCodeAt(0) - 97 + baseSeed + index * 7) % 26;
+        const scrambled = String.fromCharCode(97 + offset);
+        return isUpper ? scrambled.toUpperCase() : scrambled;
+      }
+      if (/[0-9]/.test(char)) {
+        return String((parseInt(char, 10) + baseSeed + index) % 10);
+      }
+      return char;
+    })
+    .join('');
+}
+
 export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   const { title, subtitle } = getMediaDisplay(session);
   const { user } = useAuth();
+  const { privacyMode } = useTheme();
   const [showTerminateDialog, setShowTerminateDialog] = useState(false);
 
   // Only admin/owner can terminate sessions
@@ -113,6 +135,13 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   const avatarUrl = getAvatarUrl(session.serverId, session.user.thumbUrl, 28) ?? undefined;
 
   const isPaused = session.state === 'paused';
+  const displayName = session.user.identityName ?? session.user.username;
+  const nameForDisplay = privacyMode ? scrambleText(displayName) : displayName;
+  const locationText =
+    session.geoCity && session.geoCountry
+      ? `${session.geoCity}, ${getCountryName(session.geoCountry)}`
+      : (getCountryName(session.geoCountry) ?? 'Unknown location');
+  const locationForDisplay = privacyMode ? scrambleText(locationText) : locationText;
 
   return (
     <div
@@ -167,14 +196,19 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
           {/* Top row: User and badges */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Avatar className="border-background h-7 w-7 border-2 shadow">
+              <Avatar
+                className={cn(
+                  'border-background h-7 w-7 border-2 shadow',
+                  privacyMode && 'blur-[2px]'
+                )}
+              >
                 <AvatarImage src={avatarUrl} alt={session.user.username} />
                 <AvatarFallback className="text-xs">
                   {session.user.username.slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm font-medium">
-                {session.user.identityName ?? session.user.username}
+              <span className={cn('text-sm font-medium', privacyMode && 'blur-[2px] select-none')}>
+                {nameForDisplay}
               </span>
             </div>
 
@@ -248,10 +282,8 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
 
       {/* Location/Quality footer */}
       <div className="bg-muted/50 text-muted-foreground relative flex items-center justify-between border-t px-4 py-2 text-xs">
-        <span className="truncate">
-          {session.geoCity && session.geoCountry
-            ? `${session.geoCity}, ${getCountryName(session.geoCountry)}`
-            : (getCountryName(session.geoCountry) ?? 'Unknown location')}
+        <span className={cn('truncate', privacyMode && 'blur-[2px] select-none')}>
+          {locationForDisplay}
         </span>
         <span className="flex-shrink-0">{session.quality ?? 'Unknown quality'}</span>
       </div>
