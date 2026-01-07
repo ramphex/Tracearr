@@ -45,6 +45,7 @@ import {
   KeyRound,
   Upload,
   Info,
+  Pencil,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MediaServerIcon } from '@/components/icons/MediaServerIcon';
@@ -76,6 +77,8 @@ import {
   useServers,
   useDeleteServer,
   useSyncServer,
+  useUpdateServerUrl,
+  usePlexServerConnections,
   useMobileConfig,
   useEnableMobile,
   useDisableMobile,
@@ -226,9 +229,11 @@ function ServerSettings() {
   const { data: serversData, isLoading, refetch } = useServers();
   const deleteServer = useDeleteServer();
   const syncServer = useSyncServer();
+  const updateServerUrl = useUpdateServerUrl();
   const { refetch: refetchUser, user } = useAuth();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editServer, setEditServer] = useState<Server | null>(null);
   const [serverType, setServerType] = useState<'plex' | 'jellyfin' | 'emby'>('plex');
   const [serverUrl, setServerUrl] = useState('');
   const [serverName, setServerName] = useState('');
@@ -488,6 +493,10 @@ function ServerSettings() {
                   }}
                   onDelete={() => {
                     setDeleteId(server.id);
+                  }}
+                  onEditUrl={() => {
+                    setEditServer(server);
+                    setEditUrl(server.url);
                   }}
                   isSyncing={syncServer.isPending}
                 />
@@ -793,7 +802,172 @@ function ServerSettings() {
         onConfirm={handleDelete}
         isLoading={deleteServer.isPending}
       />
+
+      {/* Edit Server URL Dialog */}
+      <EditServerUrlDialog
+        server={editServer}
+        onClose={() => {
+          setEditServer(null);
+          setEditUrl('');
+        }}
+        onUpdate={(url, clientIdentifier) => {
+          if (editServer) {
+            updateServerUrl.mutate(
+              { id: editServer.id, url, clientIdentifier },
+              {
+                onSuccess: () => {
+                  setEditServer(null);
+                  setEditUrl('');
+                },
+              }
+            );
+          }
+        }}
+        isUpdating={updateServerUrl.isPending}
+      />
     </>
+  );
+}
+
+/**
+ * Edit Server URL Dialog
+ * For Plex servers: Shows PlexServerSelector with available connections
+ * For Jellyfin/Emby: Shows simple URL input
+ */
+function EditServerUrlDialog({
+  server,
+  onClose,
+  onUpdate,
+  isUpdating,
+}: {
+  server: Server | null;
+  onClose: () => void;
+  onUpdate: (url: string, clientIdentifier?: string) => void;
+  isUpdating: boolean;
+}) {
+  const [manualUrl, setManualUrl] = useState('');
+  const isPlexServer = server?.type === 'plex';
+
+  // Fetch connections for Plex servers
+  const { data: connectionsData, isLoading: isLoadingConnections } = usePlexServerConnections(
+    isPlexServer ? server?.id : undefined
+  );
+
+  // Reset manual URL when dialog opens
+  useEffect(() => {
+    if (server) {
+      setManualUrl(server.url);
+    }
+  }, [server]);
+
+  const handlePlexSelect = (uri: string, _name: string, clientIdentifier: string) => {
+    onUpdate(uri, clientIdentifier);
+  };
+
+  if (!server) return null;
+
+  return (
+    <Dialog open={!!server} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className={cn('max-w-md', isPlexServer && 'max-w-lg')}>
+        <DialogHeader>
+          <DialogTitle>Edit Server URL</DialogTitle>
+          <DialogDescription>
+            {isPlexServer
+              ? `Select a connection for ${server.name}, or enter a custom URL.`
+              : `Update the URL for ${server.name}. The existing API token will be tested against the new URL.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isPlexServer ? (
+          // Plex: Show server selector
+          <div className="py-4">
+            {isLoadingConnections ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="text-muted-foreground ml-2 text-sm">
+                  Discovering connections...
+                </span>
+              </div>
+            ) : connectionsData?.server ? (
+              <PlexServerSelector
+                servers={[connectionsData.server]}
+                onSelect={handlePlexSelect}
+                connecting={isUpdating}
+                connectingToServer={isUpdating ? server.name : null}
+                onCancel={onClose}
+                showCancel={true}
+              />
+            ) : (
+              <div className="space-y-4">
+                <p className="text-muted-foreground text-sm">
+                  Could not discover server connections. Enter a URL manually:
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-url">Server URL</Label>
+                  <Input
+                    id="edit-url"
+                    value={manualUrl}
+                    onChange={(e) => setManualUrl(e.target.value)}
+                    placeholder="http://192.168.1.100:32400"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={onClose}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => onUpdate(manualUrl)}
+                    disabled={isUpdating || !manualUrl || manualUrl === server.url}
+                  >
+                    {isUpdating ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Updating...
+                      </>
+                    ) : (
+                      'Update URL'
+                    )}
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </div>
+        ) : (
+          // Jellyfin/Emby: Simple URL input
+          <>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-url">Server URL</Label>
+                <Input
+                  id="edit-url"
+                  value={manualUrl}
+                  onChange={(e) => setManualUrl(e.target.value)}
+                  placeholder="http://192.168.1.100:8096"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => onUpdate(manualUrl)}
+                disabled={isUpdating || !manualUrl || manualUrl === server.url}
+              >
+                {isUpdating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Update URL'
+                )}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -801,11 +975,13 @@ function ServerCard({
   server,
   onSync,
   onDelete,
+  onEditUrl,
   isSyncing,
 }: {
   server: Server;
   onSync: () => void;
   onDelete: () => void;
+  onEditUrl: () => void;
   isSyncing?: boolean;
 }) {
   return (
@@ -820,6 +996,9 @@ function ServerCard({
           </div>
           <div className="text-muted-foreground flex items-center gap-2 text-sm">
             <span>{server.url}</span>
+            <button onClick={onEditUrl} className="hover:text-primary" title="Edit URL">
+              <Pencil className="h-3 w-3" />
+            </button>
             <a
               href={server.url}
               target="_blank"

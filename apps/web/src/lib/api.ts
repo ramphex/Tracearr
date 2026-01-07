@@ -389,6 +389,12 @@ class ApiClient {
         method: 'DELETE',
       }),
 
+    // Get connections for a specific Plex server (for editing URL)
+    getPlexServerConnections: (serverId: string) =>
+      this.request<{ server: PlexDiscoveredServer | null }>(
+        `/auth/plex/server-connections/${serverId}`
+      ),
+
     // Jellyfin server connection with API key (requires auth)
     connectJellyfinWithApiKey: (data: { serverUrl: string; serverName: string; apiKey: string }) =>
       this.request<{
@@ -433,6 +439,11 @@ class ApiClient {
     },
     create: (data: { name: string; type: string; url: string; token: string }) =>
       this.request<Server>('/servers', { method: 'POST', body: JSON.stringify(data) }),
+    updateUrl: (id: string, url: string, clientIdentifier?: string) =>
+      this.request<Server>(`/servers/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ url, ...(clientIdentifier && { clientIdentifier }) }),
+      }),
     delete: (id: string) => this.request<void>(`/servers/${id}`, { method: 'DELETE' }),
     sync: (id: string) =>
       this.request<{
@@ -459,6 +470,12 @@ class ApiClient {
         }[];
         fetchedAt: string;
       }>(`/servers/${id}/statistics`),
+    health: async () => {
+      const response = await this.request<{
+        data: { serverId: string; serverName: string }[];
+      }>('/servers/health');
+      return response.data;
+    },
   };
 
   // Users
