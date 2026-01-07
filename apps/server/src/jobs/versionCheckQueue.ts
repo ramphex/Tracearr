@@ -14,7 +14,6 @@ const QUEUE_NAME = 'version-check';
 
 // GitHub API configuration
 const VERSION_REPO = process.env.VERSION_CHECK_REPO?.trim() || 'ramphex/Tracearr';
-const GITHUB_API_LATEST_URL = `https://api.github.com/repos/${VERSION_REPO}/releases/latest`;
 const GITHUB_API_ALL_RELEASES_URL = `https://api.github.com/repos/${VERSION_REPO}/releases`;
 const GITHUB_RELEASES_URL = `https://github.com/${VERSION_REPO}/releases`;
 
