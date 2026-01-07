@@ -13,12 +13,37 @@ import { REDIS_KEYS, CACHE_TTL, WS_EVENTS } from '@tracearr/shared';
 const QUEUE_NAME = 'version-check';
 
 // GitHub API configuration
-const GITHUB_API_LATEST_URL = 'https://api.github.com/repos/ramphex/Tracearr/releases/latest';
-const GITHUB_API_ALL_RELEASES_URL = 'https://api.github.com/repos/ramphex/Tracearr/releases';
-const GITHUB_RELEASES_URL = 'https://github.com/ramphex/Tracearr/releases';
+const VERSION_REPO = process.env.VERSION_CHECK_REPO?.trim() || 'ramphex/Tracearr';
+const GITHUB_API_LATEST_URL = `https://api.github.com/repos/${VERSION_REPO}/releases/latest`;
+const GITHUB_API_ALL_RELEASES_URL = `https://api.github.com/repos/${VERSION_REPO}/releases`;
+const GITHUB_RELEASES_URL = `https://github.com/${VERSION_REPO}/releases`;
 
 // Prerelease identifier patterns (beta, alpha, rc, etc.)
 const PRERELEASE_PATTERN = /-(alpha|beta|rc|next|dev|canary)\.?\d*$/i;
+
+type RunningChannel = 'stable' | 'prerelease';
+
+function getRunningChannel(): RunningChannel {
+  const tag = (process.env.APP_TAG ?? '').trim().toLowerCase();
+
+  // If tag is missing, assume stable
+  if (!tag) return 'stable';
+
+  // Anything "next"/"beta"/etc is prerelease channel
+  if (
+    tag.includes('next') ||
+    tag.includes('beta') ||
+    tag.includes('alpha') ||
+    tag.includes('rc') ||
+    tag.includes('canary') ||
+    tag.includes('dev')
+  ) {
+    return 'prerelease';
+  }
+
+  // "latest", "supervised", "v1.4.0-r", etc.
+  return 'stable';
+}
 
 // Job types
 interface VersionCheckJobData {
@@ -277,14 +302,16 @@ async function processVersionCheck(job: Job<VersionCheckJobData>): Promise<void>
 
   try {
     const currentVersion = getCurrentVersion();
-    const currentIsPrerelease = isPrerelease(currentVersion);
+    const channel = getRunningChannel();
 
-    console.log(`Current version: ${currentVersion} (prerelease: ${currentIsPrerelease})`);
+    console.log(
+      `Current version: ${currentVersion} (channel: ${channel}, APP_TAG: ${process.env.APP_TAG ?? 'null'})`
+    );
 
     let targetRelease: GitHubRelease | null = null;
 
-    if (currentIsPrerelease) {
-      // For prerelease users, fetch all releases to find the best update
+    if (channel === 'prerelease') {
+      // Beta/next users: fetch all releases and pick best update target (can be prerelease or stable)
       const releases = await fetchGitHubReleases(`${GITHUB_API_ALL_RELEASES_URL}?per_page=30`);
 
       if (!releases || !Array.isArray(releases)) {
@@ -294,15 +321,18 @@ async function processVersionCheck(job: Job<VersionCheckJobData>): Promise<void>
 
       targetRelease = findBestUpdateForPrerelease(currentVersion, releases);
     } else {
-      // For stable users, just check the latest stable release
-      const release = await fetchGitHubReleases(GITHUB_API_LATEST_URL);
+      // Stable channel: show stable releases only (ignore prereleases)
+      const releases = await fetchGitHubReleases(`${GITHUB_API_ALL_RELEASES_URL}?per_page=30`);
 
-      if (!release || Array.isArray(release)) {
-        console.log('No latest release found');
+      if (!releases || !Array.isArray(releases)) {
+        console.log('No releases found or invalid response');
         return;
       }
 
-      targetRelease = release;
+      targetRelease =
+        releases
+          .filter((r) => !r.draft && !r.prerelease)
+          .sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0] ?? null;
     }
 
     if (!targetRelease) {
@@ -434,8 +464,8 @@ interface ParsedVersion {
  * Handles: 1.3.9, v1.3.9, 1.3.9-beta.3, v1.4.0-rc.1
  */
 export function parseVersion(version: string): ParsedVersion {
-  // Remove 'v' prefix
-  const v = version.replace(/^v/, '');
+  // Remove 'v' prefix and fork edition suffix (-r / -r.X) so comparison is against upstream base
+  const v = version.replace(/^v/, '').replace(/-r(\.\d+)?$/i, '');
 
   // Match: major.minor.patch(-prerelease.num)?
   const match = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z]+)(?:\.(\d+))?)?$/);

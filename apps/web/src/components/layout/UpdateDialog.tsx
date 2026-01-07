@@ -45,9 +45,10 @@ export function UpdateDialog({ open, onOpenChange, version }: UpdateDialogProps)
   // Format the docker pull command
   const dockerCommand = useMemo(() => {
     if (!latest) return '';
+    const imageRepo = import.meta.env.VITE_DOCKER_IMAGE?.trim() || 'ghcr.io/ramphex/tracearr';
     // Use 'next' tag for prereleases, 'latest' for stable
     const tag = latest.isPrerelease ? 'next' : 'latest';
-    return `docker pull ghcr.io/connorgallopo/tracearr:${tag}`;
+    return `docker pull ${imageRepo}:${tag}`;
   }, [latest]);
 
   if (!latest || !updateType) return null;
