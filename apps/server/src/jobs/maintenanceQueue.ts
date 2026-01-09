@@ -967,8 +967,7 @@ async function processNormalizeCodecsJob(
 ): Promise<MaintenanceJobResult> {
   const startTime = Date.now();
   const pubSubService = getPubSubService();
-  const BATCH_SIZE = 500;
-  const BATCH_DELAY_MS = 50;
+  const BATCH_SIZE = 1000; // Bulk update batch size
 
   // Initialize progress
   activeJobProgress = {
@@ -991,7 +990,6 @@ async function processNormalizeCodecsJob(
 
   try {
     // Count sessions that have codec values not already uppercase
-    // Check if any codec column has lowercase characters
     const [countResult] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(sessions)
@@ -1026,117 +1024,51 @@ async function processNormalizeCodecsJob(
       };
     }
 
-    let lastId = ''; // Cursor for pagination
-    let totalProcessed = 0;
     let totalUpdated = 0;
-    let totalSkipped = 0;
     let totalErrors = 0;
 
-    while (totalProcessed < totalRecords) {
-      // Fetch batch of sessions with non-uppercase codecs
-      const whereCondition = or(
-        sql`${sessions.sourceVideoCodec} IS DISTINCT FROM UPPER(${sessions.sourceVideoCodec})`,
-        sql`${sessions.sourceAudioCodec} IS DISTINCT FROM UPPER(${sessions.sourceAudioCodec})`,
-        sql`${sessions.streamVideoCodec} IS DISTINCT FROM UPPER(${sessions.streamVideoCodec})`,
-        sql`${sessions.streamAudioCodec} IS DISTINCT FROM UPPER(${sessions.streamAudioCodec})`
-      );
+    // Use bulk UPDATE with LIMIT subquery - much more efficient than individual updates
+    // This avoids exhausting PostgreSQL's lock pool
+    while (totalUpdated < totalRecords) {
+      try {
+        // Single bulk UPDATE that updates up to BATCH_SIZE rows at once
+        const result = await db.execute(sql`
+          UPDATE ${sessions}
+          SET
+            source_video_codec = UPPER(source_video_codec),
+            source_audio_codec = UPPER(source_audio_codec),
+            stream_video_codec = UPPER(stream_video_codec),
+            stream_audio_codec = UPPER(stream_audio_codec)
+          WHERE id IN (
+            SELECT id FROM ${sessions}
+            WHERE source_video_codec IS DISTINCT FROM UPPER(source_video_codec)
+               OR source_audio_codec IS DISTINCT FROM UPPER(source_audio_codec)
+               OR stream_video_codec IS DISTINCT FROM UPPER(stream_video_codec)
+               OR stream_audio_codec IS DISTINCT FROM UPPER(stream_audio_codec)
+            LIMIT ${BATCH_SIZE}
+          )
+        `);
 
-      const batch = await db
-        .select({
-          id: sessions.id,
-          sourceVideoCodec: sessions.sourceVideoCodec,
-          sourceAudioCodec: sessions.sourceAudioCodec,
-          streamVideoCodec: sessions.streamVideoCodec,
-          streamAudioCodec: sessions.streamAudioCodec,
-        })
-        .from(sessions)
-        .where(lastId ? and(whereCondition, sql`${sessions.id} > ${lastId}`) : whereCondition)
-        .orderBy(sessions.id)
-        .limit(BATCH_SIZE);
+        const updatedCount = Number(result.rowCount ?? 0);
 
-      // No more records to process
-      if (batch.length === 0) {
+        // No more rows to update
+        if (updatedCount === 0) {
+          break;
+        }
+
+        totalUpdated += updatedCount;
+      } catch (error) {
+        console.error(`[Maintenance] Error in bulk update:`, error);
+        totalErrors++;
         break;
       }
 
-      // Update cursor to last record in batch
-      lastId = batch[batch.length - 1]!.id;
-
-      // Collect updates for batch processing
-      const updates: Array<{
-        id: string;
-        sourceVideoCodec: string | null;
-        sourceAudioCodec: string | null;
-        streamVideoCodec: string | null;
-        streamAudioCodec: string | null;
-      }> = [];
-
-      for (const session of batch) {
-        try {
-          const newSourceVideo = session.sourceVideoCodec?.toUpperCase() ?? null;
-          const newSourceAudio = session.sourceAudioCodec?.toUpperCase() ?? null;
-          const newStreamVideo = session.streamVideoCodec?.toUpperCase() ?? null;
-          const newStreamAudio = session.streamAudioCodec?.toUpperCase() ?? null;
-
-          // Check if any codec actually changed
-          const needsUpdate =
-            newSourceVideo !== session.sourceVideoCodec ||
-            newSourceAudio !== session.sourceAudioCodec ||
-            newStreamVideo !== session.streamVideoCodec ||
-            newStreamAudio !== session.streamAudioCodec;
-
-          if (needsUpdate) {
-            updates.push({
-              id: session.id,
-              sourceVideoCodec: newSourceVideo,
-              sourceAudioCodec: newSourceAudio,
-              streamVideoCodec: newStreamVideo,
-              streamAudioCodec: newStreamAudio,
-            });
-          } else {
-            totalSkipped++;
-          }
-        } catch (error) {
-          console.error(`[Maintenance] Error processing session ${session.id}:`, error);
-          totalErrors++;
-        }
-      }
-
-      // Execute batch updates
-      if (updates.length > 0) {
-        try {
-          const UPDATE_CHUNK_SIZE = 50;
-          for (let i = 0; i < updates.length; i += UPDATE_CHUNK_SIZE) {
-            const chunk = updates.slice(i, i + UPDATE_CHUNK_SIZE);
-            await Promise.all(
-              chunk.map((update) =>
-                db
-                  .update(sessions)
-                  .set({
-                    sourceVideoCodec: update.sourceVideoCodec,
-                    sourceAudioCodec: update.sourceAudioCodec,
-                    streamVideoCodec: update.streamVideoCodec,
-                    streamAudioCodec: update.streamAudioCodec,
-                  })
-                  .where(eq(sessions.id, update.id))
-              )
-            );
-          }
-          totalUpdated += updates.length;
-        } catch (error) {
-          console.error(`[Maintenance] Error in batch update:`, error);
-          totalErrors += updates.length;
-        }
-      }
-
-      totalProcessed += batch.length;
-      activeJobProgress.processedRecords = totalProcessed;
+      activeJobProgress.processedRecords = totalUpdated;
       activeJobProgress.updatedRecords = totalUpdated;
-      activeJobProgress.skippedRecords = totalSkipped;
       activeJobProgress.errorRecords = totalErrors;
-      activeJobProgress.message = `Processed ${totalProcessed.toLocaleString()} of ${totalRecords.toLocaleString()} sessions...`;
+      activeJobProgress.message = `Updated ${totalUpdated.toLocaleString()} of ${totalRecords.toLocaleString()} sessions...`;
 
-      const percent = Math.round((totalProcessed / totalRecords) * 100);
+      const percent = Math.min(100, Math.round((totalUpdated / totalRecords) * 100));
       await job.updateProgress(percent);
       await publishProgress();
 
@@ -1145,14 +1077,11 @@ async function processNormalizeCodecsJob(
       } catch {
         console.warn(`[Maintenance] Failed to extend lock for job ${job.id}`);
       }
-
-      if (totalProcessed < totalRecords) {
-        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
-      }
     }
 
     const durationMs = Date.now() - startTime;
     activeJobProgress.status = 'complete';
+    activeJobProgress.processedRecords = totalUpdated;
     activeJobProgress.message = `Completed! Normalized ${totalUpdated.toLocaleString()} codec values in ${Math.round(durationMs / 1000)}s`;
     activeJobProgress.completedAt = new Date().toISOString();
     await publishProgress();
@@ -1162,9 +1091,9 @@ async function processNormalizeCodecsJob(
     return {
       success: true,
       type: 'normalize_codecs',
-      processed: totalRecords,
+      processed: totalUpdated,
       updated: totalUpdated,
-      skipped: totalSkipped,
+      skipped: 0,
       errors: totalErrors,
       durationMs,
       message: `Normalized ${totalUpdated.toLocaleString()} codec values to uppercase`,
