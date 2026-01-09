@@ -1205,7 +1205,8 @@ export type MaintenanceJobType =
   | 'normalize_players'
   | 'normalize_countries'
   | 'fix_imported_progress'
-  | 'rebuild_timescale_views';
+  | 'rebuild_timescale_views'
+  | 'normalize_codecs';
 
 export type MaintenanceJobStatus = 'idle' | 'running' | 'complete' | 'error';
 

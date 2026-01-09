@@ -62,6 +62,7 @@ const JOB_ICONS: Record<string, typeof Database> = {
   normalize_countries: Globe,
   fix_imported_progress: RefreshCw,
   rebuild_timescale_views: Database,
+  normalize_codecs: ArrowUpDown,
 };
 
 function formatDuration(ms: number): string {
