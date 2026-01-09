@@ -605,6 +605,8 @@ export interface Settings {
   // Poller settings
   pollerEnabled: boolean;
   pollerIntervalMs: number;
+  // GeoIP settings
+  usePlexGeoip: boolean;
   // Tautulli integration
   tautulliUrl: string | null;
   tautulliApiKey: string | null;
