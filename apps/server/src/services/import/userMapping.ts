@@ -14,8 +14,14 @@ import { serverUsers } from '../../db/schema.js';
 /**
  * Create a mapping from external user IDs to Tracearr server user IDs
  *
+ * For Plex servers, this indexes by BOTH externalId (local PMS ID) AND plexAccountId (plex.tv ID).
+ * This is necessary because:
+ * - Sessions use local PMS ID (owner = "1")
+ * - Tautulli uses plex.tv ID (owner = "150112024")
+ * - For shared users, both IDs are the same
+ *
  * @param serverId - The server ID to get users for
- * @returns Map where key is externalId (as string) and value is serverUser.id
+ * @returns Map where key is externalId or plexAccountId (as string) and value is serverUser.id
  */
 export async function createUserMapping(serverId: string): Promise<Map<string, string>> {
   const tracearrUsers = await db
@@ -25,8 +31,14 @@ export async function createUserMapping(serverId: string): Promise<Map<string, s
 
   const userMap = new Map<string, string>();
   for (const serverUser of tracearrUsers) {
+    // Index by externalId (local PMS ID - used by live sessions)
     if (serverUser.externalId) {
       userMap.set(serverUser.externalId, serverUser.id);
+    }
+    // Also index by plexAccountId (plex.tv ID - used by Tautulli)
+    // For shared users these are the same, but for owner they differ
+    if (serverUser.plexAccountId && serverUser.plexAccountId !== serverUser.externalId) {
+      userMap.set(serverUser.plexAccountId, serverUser.id);
     }
   }
 
