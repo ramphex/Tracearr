@@ -312,31 +312,23 @@ async function processNormalizePlayersJob(
         }
       }
 
-      // Execute batch updates (one UPDATE per record, but in quick succession)
-      // PostgreSQL doesn't support bulk UPDATE with different values per row easily,
-      // but we can at least batch them without awaiting each one individually
+      // Execute updates sequentially to avoid exhausting the connection pool
+      // Maintenance jobs are not time-critical, so sequential is fine
       if (updates.length > 0) {
-        try {
-          // Process updates in smaller chunks to avoid long transactions
-          const UPDATE_CHUNK_SIZE = 50;
-          for (let i = 0; i < updates.length; i += UPDATE_CHUNK_SIZE) {
-            const chunk = updates.slice(i, i + UPDATE_CHUNK_SIZE);
-            await Promise.all(
-              chunk.map((update) =>
-                db
-                  .update(sessions)
-                  .set({
-                    device: update.device,
-                    platform: update.platform,
-                  })
-                  .where(eq(sessions.id, update.id))
-              )
-            );
+        for (const update of updates) {
+          try {
+            await db
+              .update(sessions)
+              .set({
+                device: update.device,
+                platform: update.platform,
+              })
+              .where(eq(sessions.id, update.id));
+            totalUpdated++;
+          } catch (error) {
+            console.error(`[Maintenance] Error updating session ${update.id}:`, error);
+            totalErrors++;
           }
-          totalUpdated += updates.length;
-        } catch (error) {
-          console.error(`[Maintenance] Error in batch update:`, error);
-          totalErrors += updates.length;
         }
       }
 
@@ -556,25 +548,19 @@ async function processNormalizeCountriesJob(
         }
       }
 
-      // Execute batch updates
+      // Execute updates sequentially to avoid exhausting the connection pool
       if (updates.length > 0) {
-        try {
-          const UPDATE_CHUNK_SIZE = 50;
-          for (let i = 0; i < updates.length; i += UPDATE_CHUNK_SIZE) {
-            const chunk = updates.slice(i, i + UPDATE_CHUNK_SIZE);
-            await Promise.all(
-              chunk.map((update) =>
-                db
-                  .update(sessions)
-                  .set({ geoCity: update.geoCity, geoCountry: update.geoCountry })
-                  .where(eq(sessions.id, update.id))
-              )
-            );
+        for (const update of updates) {
+          try {
+            await db
+              .update(sessions)
+              .set({ geoCity: update.geoCity, geoCountry: update.geoCountry })
+              .where(eq(sessions.id, update.id));
+            totalUpdated++;
+          } catch (error) {
+            console.error(`[Maintenance] Error updating session ${update.id}:`, error);
+            totalErrors++;
           }
-          totalUpdated += updates.length;
-        } catch (error) {
-          console.error(`[Maintenance] Error in batch update:`, error);
-          totalErrors += updates.length;
         }
       }
 
@@ -781,28 +767,22 @@ async function processFixImportedProgressJob(
         }
       }
 
-      // Execute batch updates
+      // Execute updates sequentially to avoid exhausting the connection pool
       if (updates.length > 0) {
-        try {
-          const UPDATE_CHUNK_SIZE = 50;
-          for (let i = 0; i < updates.length; i += UPDATE_CHUNK_SIZE) {
-            const chunk = updates.slice(i, i + UPDATE_CHUNK_SIZE);
-            await Promise.all(
-              chunk.map((update) =>
-                db
-                  .update(sessions)
-                  .set({
-                    progressMs: update.progressMs,
-                    totalDurationMs: update.totalDurationMs,
-                  })
-                  .where(eq(sessions.id, update.id))
-              )
-            );
+        for (const update of updates) {
+          try {
+            await db
+              .update(sessions)
+              .set({
+                progressMs: update.progressMs,
+                totalDurationMs: update.totalDurationMs,
+              })
+              .where(eq(sessions.id, update.id));
+            totalUpdated++;
+          } catch (error) {
+            console.error(`[Maintenance] Error updating session ${update.id}:`, error);
+            totalErrors++;
           }
-          totalUpdated += updates.length;
-        } catch (error) {
-          console.error(`[Maintenance] Error in batch update:`, error);
-          totalErrors += updates.length;
         }
       }
 
