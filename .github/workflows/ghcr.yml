@@ -2,8 +2,8 @@ name: Build & Publish Fork Image (Stable)
 
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+-r*"
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -29,30 +29,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute version from tag
+      - name: Compute stable fork version (vX.Y.Z-r.N)
         id: ver
         shell: bash
         run: |
           set -euo pipefail
 
-          # Tag name that triggered the workflow, e.g. "v1.4.3-r.1"
-          REF="${GITHUB_REF_NAME}"
+          git remote add upstream https://github.com/connorgallopo/Tracearr.git 2>/dev/null || true
+          git fetch upstream --tags --force
 
-          # Strip leading "v" for docker tags, e.g. "1.4.3-r.1"
-          DOCKER_TAG="${REF#v}"
+          BASE_TAG="$(git tag --merged HEAD --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+          if [[ -z "${BASE_TAG}" ]]; then
+            echo "ERROR: No stable upstream tags are merged into HEAD; cannot compute stable version safely."
+            exit 1
+          fi
 
+          git fetch --tags --force
+          EXISTING_COUNT="$(git tag -l "${BASE_TAG}-r.*" | wc -l | tr -d ' ')"
+          EDITION="$((EXISTING_COUNT + 1))"
+
+          FORK_VERSION="${BASE_TAG}-r.${EDITION}"
+          COMMIT="${GITHUB_SHA}"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
-          echo "docker_tag=${DOCKER_TAG}" >> "$GITHUB_OUTPUT"
-          echo "commit=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "base_tag=${BASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "edition=${EDITION}" >> "$GITHUB_OUTPUT"
+          echo "fork_version=${FORK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
           echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
 
-          echo "Release tag: ${REF}"
-          echo "Docker tag:   ${DOCKER_TAG}"
+          echo "Base tag: ${BASE_TAG}"
+          echo "Edition: ${EDITION}"
+          echo "Fork version: ${FORK_VERSION}"
 
-      # App-only image (stable): latest + pinned version
-      - name: Build & push app-only image
+      - name: Build & push stable image (non-supervised)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -60,15 +70,14 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/tracearr:latest
-            ghcr.io/${{ github.repository_owner }}/tracearr:${{ steps.ver.outputs.docker_tag }}
+            ghcr.io/${{ github.repository_owner }}/tracearr:${{ steps.ver.outputs.fork_version }}
           build-args: |
-            APP_VERSION=${{ steps.ver.outputs.docker_tag }}
-            APP_TAG=${{ steps.ver.outputs.docker_tag }}
+            APP_VERSION=${{ steps.ver.outputs.fork_version }}
+            APP_TAG=${{ steps.ver.outputs.fork_version }}
             APP_COMMIT=${{ steps.ver.outputs.commit }}
             APP_BUILD_DATE=${{ steps.ver.outputs.build_date }}
 
-      # Supervised image (stable): supervised + pinned supervised-version
-      - name: Build & push supervised image
+      - name: Build & push stable image (supervised)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -76,9 +85,33 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/tracearr:supervised
-            ghcr.io/${{ github.repository_owner }}/tracearr:supervised-${{ steps.ver.outputs.docker_tag }}
+            ghcr.io/${{ github.repository_owner }}/tracearr:supervised-${{ steps.ver.outputs.fork_version }}
           build-args: |
-            APP_VERSION=${{ steps.ver.outputs.docker_tag }}
-            APP_TAG=supervised-${{ steps.ver.outputs.docker_tag }}
+            APP_VERSION=${{ steps.ver.outputs.fork_version }}
+            APP_TAG=supervised-${{ steps.ver.outputs.fork_version }}
             APP_COMMIT=${{ steps.ver.outputs.commit }}
             APP_BUILD_DATE=${{ steps.ver.outputs.build_date }}
+
+      - name: Create & push stable fork tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FORK_VERSION="${{ steps.ver.outputs.fork_version }}"
+          SUP_TAG="supervised-${FORK_VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          create_tag() {
+            local tag="$1"
+            if git rev-parse "${tag}" >/dev/null 2>&1; then
+              echo "Tag ${tag} already exists; skipping"
+              return 0
+            fi
+            git tag -a "${tag}" -m "Fork stable build ${tag}"
+            git push origin "${tag}"
+          }
+
+          create_tag "${FORK_VERSION}"
+          create_tag "${SUP_TAG}"
