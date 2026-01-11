@@ -2,16 +2,15 @@ name: Build & Publish Fork Image (Beta)
 
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+-beta.*-r*"
-      - "v[0-9]+.[0-9]+.[0-9]+-rc.*-r*"
+    branches:
+      - beta
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -19,6 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -30,30 +30,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute version from tag
+      - name: Compute beta fork version (vX.Y.Z-*-r.N)
         id: ver
         shell: bash
         run: |
           set -euo pipefail
 
-          # Tag name that triggered the workflow, e.g. "v1.4.3-beta.2-r.1"
-          REF="${GITHUB_REF_NAME}"
+          git remote add upstream https://github.com/connorgallopo/Tracearr.git 2>/dev/null || true
+          git fetch upstream --tags --force
 
-          # Strip leading "v" for docker tags, e.g. "1.4.3-beta.2-r.1"
-          DOCKER_TAG="${REF#v}"
+          BASE_TAG="$(git tag --merged HEAD --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-[^-]+(\.[0-9]+)?$' | head -1)"
+          if [[ -z "${BASE_TAG}" ]]; then
+            echo "ERROR: No prerelease upstream tag is merged into HEAD."
+            exit 1
+          fi
 
-          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git fetch --tags --force
+          EXISTING_COUNT="$(git tag -l "${BASE_TAG}-r.*" | wc -l | tr -d ' ')"
+          REV="$((EXISTING_COUNT + 1))"
 
-          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
-          echo "docker_tag=${DOCKER_TAG}" >> "$GITHUB_OUTPUT"
-          echo "commit=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+          FORK_VERSION="${BASE_TAG}-r.${REV}"
 
-          echo "Release tag: ${REF}"
-          echo "Docker tag:   ${DOCKER_TAG}"
+          echo "base_tag=${BASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "rev=${REV}" >> "$GITHUB_OUTPUT"
+          echo "fork_version=${FORK_VERSION}" >> "$GITHUB_OUTPUT"
 
-      # App-only image (beta): next + pinned beta version
-      - name: Build & push app-only beta image
+          echo "Base tag: ${BASE_TAG}"
+          echo "Fork version: ${FORK_VERSION}"
+
+      - name: Build & push beta image (non-supervised)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -61,15 +66,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/tracearr:next
-            ghcr.io/${{ github.repository_owner }}/tracearr:${{ steps.ver.outputs.docker_tag }}
-          build-args: |
-            APP_VERSION=${{ steps.ver.outputs.docker_tag }}
-            APP_TAG=${{ steps.ver.outputs.docker_tag }}
-            APP_COMMIT=${{ steps.ver.outputs.commit }}
-            APP_BUILD_DATE=${{ steps.ver.outputs.build_date }}
+            ghcr.io/${{ github.repository_owner }}/tracearr:${{ steps.ver.outputs.fork_version }}
 
-      # Supervised image (beta): supervised-next + pinned supervised-beta-version
-      - name: Build & push supervised beta image
+      - name: Build & push beta image (supervised)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -77,9 +76,32 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/tracearr:supervised-next
-            ghcr.io/${{ github.repository_owner }}/tracearr:supervised-${{ steps.ver.outputs.docker_tag }}
-          build-args: |
-            APP_VERSION=${{ steps.ver.outputs.docker_tag }}
-            APP_TAG=supervised-${{ steps.ver.outputs.docker_tag }}
-            APP_COMMIT=${{ steps.ver.outputs.commit }}
-            APP_BUILD_DATE=${{ steps.ver.outputs.build_date }}
+            ghcr.io/${{ github.repository_owner }}/tracearr:supervised-${{ steps.ver.outputs.fork_version }}
+
+      - name: Create & push beta git tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          FORK_VERSION="${{ steps.ver.outputs.fork_version }}"
+          SUP_TAG="supervised-${FORK_VERSION}"
+
+          create_tag() {
+            local tag="$1"
+            if git rev-parse "${tag}" >/dev/null 2>&1; then
+              echo "Tag ${tag} already exists; skipping"
+              return 0
+            fi
+            git tag -a "${tag}" -m "Fork beta build ${tag}"
+            git push origin "${tag}"
+          }
+
+          create_tag "${FORK_VERSION}"
+          create_tag "${SUP_TAG}"
