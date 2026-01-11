@@ -2,15 +2,21 @@ name: Build & Publish Fork Image (Stable)
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      # Example: v1.4.3-r.1
+      - "v*-r.*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to build (example: v1.4.3-r.1). Leave blank when running from a tag push."
+        required: false
+        default: ""
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
 
     steps:
@@ -18,7 +24,36 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
+
+      - name: Resolve version tag
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION_INPUT="${{ github.event.inputs.version }}"
+          REF_NAME="${{ github.ref_name }}"
+
+          if [[ -n "${VERSION_INPUT}" ]]; then
+            VERSION="${VERSION_INPUT}"
+          else
+            VERSION="${REF_NAME}"
+          fi
+
+          if [[ -z "${VERSION}" ]]; then
+            echo "ERROR: No version resolved. Provide workflow_dispatch input 'version' or run from a tag push."
+            exit 1
+          fi
+
+          # Enforce stable fork tag shape: vX.Y.Z-r.N
+          if ! [[ "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-r\.[0-9]+$ ]]; then
+            echo "ERROR: Version must look like vX.Y.Z-r.N (example v1.4.3-r.1). Got: ${VERSION}"
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "supervised_version=supervised-${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved VERSION=${VERSION}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -30,39 +65,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute stable fork version (X.Y.Z-r.N)
-        id: ver
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git remote add upstream https://github.com/connorgallopo/Tracearr.git 2>/dev/null || true
-          git fetch upstream --tags --force
-
-          BASE_TAG="$(git tag --merged HEAD --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
-          if [[ -z "${BASE_TAG}" ]]; then
-            echo "ERROR: No stable upstream tag is merged into HEAD."
-            exit 1
-          fi
-
-          # Strip leading "v"
-          BASE_VER="${BASE_TAG#v}"
-
-          # Count existing fork tags like "1.4.3-r.*" to assign next revision
-          git fetch --tags --force
-          EXISTING_COUNT="$(git tag -l "${BASE_VER}-r.*" | wc -l | tr -d ' ')"
-          REV="$((EXISTING_COUNT + 1))"
-
-          FORK_VERSION="${BASE_VER}-r.${REV}"
-
-          echo "base_tag=${BASE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "base_ver=${BASE_VER}" >> "$GITHUB_OUTPUT"
-          echo "rev=${REV}" >> "$GITHUB_OUTPUT"
-          echo "fork_version=${FORK_VERSION}" >> "$GITHUB_OUTPUT"
-
-          echo "Base tag: ${BASE_TAG}"
-          echo "Fork version: ${FORK_VERSION}"
-
+      # Non-supervised stable image:
+      # - ghcr.io/<owner>/tracearr:latest
+      # - ghcr.io/<owner>/tracearr:vX.Y.Z-r.N
       - name: Build & push stable image (non-supervised)
         uses: docker/build-push-action@v6
         with:
@@ -71,8 +76,15 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/tracearr:latest
-            ghcr.io/${{ github.repository_owner }}/tracearr:${{ steps.ver.outputs.fork_version }}
+            ghcr.io/${{ github.repository_owner }}/tracearr:${{ steps.ver.outputs.version }}
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.version }}
+            APP_TAG=${{ steps.ver.outputs.version }}
+            APP_COMMIT=${{ github.sha }}
 
+      # Supervised stable image:
+      # - ghcr.io/<owner>/tracearr:supervised
+      # - ghcr.io/<owner>/tracearr:supervised-vX.Y.Z-r.N
       - name: Build & push stable image (supervised)
         uses: docker/build-push-action@v6
         with:
@@ -81,33 +93,8 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/tracearr:supervised
-            ghcr.io/${{ github.repository_owner }}/tracearr:supervised-${{ steps.ver.outputs.fork_version }}
-
-      - name: Create & push stable git tags
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Force git pushes to authenticate with the workflow token
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          FORK_VERSION="${{ steps.ver.outputs.fork_version }}"
-          SUP_TAG="supervised-${FORK_VERSION}"
-
-          create_tag() {
-            local tag="$1"
-            if git rev-parse "${tag}" >/dev/null 2>&1; then
-              echo "Tag ${tag} already exists; skipping"
-              return 0
-            fi
-            git tag -a "${tag}" -m "Fork stable build ${tag}"
-            git push origin "${tag}"
-          }
-
-          create_tag "${FORK_VERSION}"
-          create_tag "${SUP_TAG}"
+            ghcr.io/${{ github.repository_owner }}/tracearr:${{ steps.ver.outputs.supervised_version }}
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.version }}
+            APP_TAG=${{ steps.ver.outputs.supervised_version }}
+            APP_COMMIT=${{ github.sha }}
