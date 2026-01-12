@@ -78,7 +78,7 @@ function formatFramerate(framerate: string | number | null | undefined): string 
   if (framerate === null || framerate === undefined || framerate === '') return '—';
   const numeric = typeof framerate === 'number' ? framerate : parseFloat(String(framerate));
   if (Number.isNaN(numeric)) return String(framerate);
-  return numeric.toFixed(2);
+  return numeric % 1 === 0 ? numeric.toFixed(0) : numeric.toFixed(1);
 }
 
 // Get decision badge variant and label
