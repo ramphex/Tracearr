@@ -108,17 +108,11 @@ export function NotificationAgentsManager() {
       if (agentType === 'discord') {
         result = await api.settings.testWebhook({
           type: 'discord',
-          url: settings.discordWebhookUrl ?? undefined,
         });
       } else if (CUSTOM_WEBHOOK_AGENTS.includes(agentType)) {
         result = await api.settings.testWebhook({
           type: 'custom',
-          url: settings.customWebhookUrl ?? undefined,
           format: settings.webhookFormat ?? undefined,
-          ntfyTopic: settings.ntfyTopic ?? undefined,
-          ntfyAuthToken: settings.ntfyAuthToken ?? undefined,
-          pushoverUserKey: settings.pushoverUserKey ?? undefined,
-          pushoverApiToken: settings.pushoverApiToken ?? undefined,
         });
       } else {
         throw new Error('Test not supported for this agent type');

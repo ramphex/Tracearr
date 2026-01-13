@@ -374,10 +374,10 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     } else {
       webhookUrl = url ?? currentSettings?.customWebhookUrl ?? null;
       webhookFormat = format ?? currentSettings?.webhookFormat ?? 'json';
-      ntfyTopic = request.body.ntfyTopic ?? currentSettings?.ntfyTopic ?? null;
-      ntfyAuthToken = request.body.ntfyAuthToken ?? currentSettings?.ntfyAuthToken ?? null;
-      pushoverUserKey = request.body.pushoverUserKey ?? currentSettings?.pushoverUserKey ?? null;
-      pushoverApiToken = request.body.pushoverApiToken ?? currentSettings?.pushoverApiToken ?? null;
+      ntfyTopic = currentSettings?.ntfyTopic ?? null;
+      ntfyAuthToken = currentSettings?.ntfyAuthToken ?? null;
+      pushoverUserKey = currentSettings?.pushoverUserKey ?? null;
+      pushoverApiToken = currentSettings?.pushoverApiToken ?? null;
     }
 
     if (webhookFormat === 'pushover') {
