@@ -34,6 +34,8 @@ import type {
   HistorySessionResponse,
   HistoryFilterOptions,
   HistoryQueryInput,
+  HistoryAggregatesQueryInput,
+  HistoryAggregates,
   VersionInfo,
   EngagementStats,
   ShowStatsResponse,
@@ -565,6 +567,37 @@ class ApiClient {
       return this.request<HistorySessionResponse>(`/sessions/history?${searchParams.toString()}`);
     },
     /**
+     * Get aggregate stats for history (total plays, watch time, unique users/content).
+     * Called separately from history() so sorting changes don't refetch these stats.
+     */
+    historyAggregates: (params: Partial<HistoryAggregatesQueryInput>) => {
+      const searchParams = new URLSearchParams();
+      if (params.serverUserIds?.length)
+        searchParams.set('serverUserIds', params.serverUserIds.join(','));
+      if (params.serverId) searchParams.set('serverId', params.serverId);
+      if (params.state) searchParams.set('state', params.state);
+      if (params.mediaTypes?.length) searchParams.set('mediaTypes', params.mediaTypes.join(','));
+      if (params.startDate) searchParams.set('startDate', params.startDate.toISOString());
+      if (params.endDate) searchParams.set('endDate', params.endDate.toISOString());
+      if (params.search) searchParams.set('search', params.search);
+      if (params.platforms?.length) searchParams.set('platforms', params.platforms.join(','));
+      if (params.product) searchParams.set('product', params.product);
+      if (params.device) searchParams.set('device', params.device);
+      if (params.playerName) searchParams.set('playerName', params.playerName);
+      if (params.ipAddress) searchParams.set('ipAddress', params.ipAddress);
+      if (params.geoCountries?.length)
+        searchParams.set('geoCountries', params.geoCountries.join(','));
+      if (params.geoCity) searchParams.set('geoCity', params.geoCity);
+      if (params.geoRegion) searchParams.set('geoRegion', params.geoRegion);
+      if (params.transcodeDecisions?.length)
+        searchParams.set('transcodeDecisions', params.transcodeDecisions.join(','));
+      if (params.watched !== undefined) searchParams.set('watched', String(params.watched));
+      if (params.excludeShortSessions) searchParams.set('excludeShortSessions', 'true');
+      return this.request<HistoryAggregates>(
+        `/sessions/history/aggregates?${searchParams.toString()}`
+      );
+    },
+    /**
      * Get available filter values for dropdowns on the History page.
      * Accepts optional date range to match history query filters.
      */
@@ -616,6 +649,8 @@ class ApiClient {
       severity?: string;
       acknowledged?: boolean;
       serverId?: string;
+      orderBy?: string;
+      orderDir?: 'asc' | 'desc';
     }) => {
       const searchParams = new URLSearchParams();
       if (params?.page) searchParams.set('page', String(params.page));
@@ -625,6 +660,8 @@ class ApiClient {
       if (params?.acknowledged !== undefined)
         searchParams.set('acknowledged', String(params.acknowledged));
       if (params?.serverId) searchParams.set('serverId', params.serverId);
+      if (params?.orderBy) searchParams.set('orderBy', params.orderBy);
+      if (params?.orderDir) searchParams.set('orderDir', params.orderDir);
       return this.request<PaginatedResponse<ViolationWithDetails>>(
         `/violations?${searchParams.toString()}`
       );

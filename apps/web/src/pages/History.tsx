@@ -15,7 +15,12 @@ import {
 import { HistoryTable, type SortableColumn } from '@/components/history/HistoryTable';
 import { HistoryAggregates } from '@/components/history/HistoryAggregates';
 import { SessionDetailSheet } from '@/components/history/SessionDetailSheet';
-import { useHistorySessions, useFilterOptions, type HistoryFilters } from '@/hooks/queries';
+import {
+  useHistorySessions,
+  useHistoryAggregates,
+  useFilterOptions,
+  type HistoryFilters,
+} from '@/hooks/queries';
 import { useServer } from '@/hooks/useServer';
 import type { SessionWithDetails } from '@tracearr/shared';
 
@@ -183,6 +188,11 @@ export function History() {
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     useHistorySessions(filters);
 
+  // Separate aggregates query - uses data filters only (excludes sorting)
+  // This prevents aggregates from reloading when sorting changes
+  const { orderBy: _orderBy, orderDir: _orderDir, ...dataFilters } = filters;
+  const { data: aggregatesData, isLoading: aggregatesLoading } = useHistoryAggregates(dataFilters);
+
   const { data: filterOptions, isLoading: filterOptionsLoading } = useFilterOptions({
     serverId: filters.serverId,
     startDate: filters.startDate,
@@ -207,9 +217,9 @@ export function History() {
     return data?.pages.flatMap((page) => page.data) ?? [];
   }, [data]);
 
-  // Get aggregates from first page
-  const aggregates = data?.pages[0]?.aggregates;
-  const total = data?.pages[0]?.total;
+  // Use aggregates from dedicated query (doesn't reload on sort changes)
+  const aggregates = aggregatesData;
+  const total = aggregatesData?.playCount;
 
   // Handle filter changes - update URL
   const handleFiltersChange = useCallback(
@@ -262,7 +272,7 @@ export function History() {
       </div>
 
       {/* Aggregates Summary */}
-      <HistoryAggregates aggregates={aggregates} total={total} isLoading={isLoading} />
+      <HistoryAggregates aggregates={aggregates} total={total} isLoading={aggregatesLoading} />
 
       {/* Filters */}
       <Card>

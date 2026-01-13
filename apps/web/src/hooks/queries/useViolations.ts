@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { ViolationWithDetails, PaginatedResponse, ViolationSeverity } from '@tracearr/shared';
+import type {
+  ViolationWithDetails,
+  PaginatedResponse,
+  ViolationSeverity,
+  ViolationSortField,
+} from '@tracearr/shared';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 
@@ -10,6 +15,8 @@ interface ViolationsParams {
   severity?: ViolationSeverity;
   acknowledged?: boolean;
   serverId?: string;
+  orderBy?: ViolationSortField;
+  orderDir?: 'asc' | 'desc';
 }
 
 export function useViolations(params: ViolationsParams = {}) {

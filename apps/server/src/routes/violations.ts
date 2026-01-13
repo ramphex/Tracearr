@@ -8,11 +8,33 @@ import {
   violationQuerySchema,
   violationIdParamSchema,
   type ViolationSessionInfo,
+  type ViolationSortField,
 } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { violations, rules, serverUsers, sessions, servers, users } from '../db/schema.js';
 import { hasServerAccess } from '../utils/serverFiltering.js';
 import { getTrustScorePenalty } from '../jobs/poller/violations.js';
+
+/**
+ * Build ORDER BY SQL clause for violations based on sort field and direction.
+ */
+function getViolationOrderBy(orderBy: ViolationSortField, orderDir: 'asc' | 'desc') {
+  const dir = orderDir === 'asc' ? sql`ASC` : sql`DESC`;
+  const reverseDir = orderDir === 'asc' ? sql`DESC` : sql`ASC`;
+
+  switch (orderBy) {
+    case 'severity':
+      // Sort by severity: high > warning > low (descending = high first)
+      return sql`CASE ${violations.severity} WHEN 'high' THEN 1 WHEN 'warning' THEN 2 WHEN 'low' THEN 3 END ${reverseDir}, ${violations.createdAt} DESC`;
+    case 'user':
+      return sql`${serverUsers.username} ${dir}, ${violations.createdAt} DESC`;
+    case 'rule':
+      return sql`${rules.name} ${dir}, ${violations.createdAt} DESC`;
+    case 'createdAt':
+    default:
+      return sql`${violations.createdAt} ${dir}`;
+  }
+}
 
 export const violationRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -37,6 +59,8 @@ export const violationRoutes: FastifyPluginAsync = async (app) => {
       acknowledged,
       startDate,
       endDate,
+      orderBy = 'createdAt',
+      orderDir = 'desc',
     } = query.data;
 
     const authUser = request.user;
@@ -147,7 +171,7 @@ export const violationRoutes: FastifyPluginAsync = async (app) => {
       .innerJoin(servers, eq(serverUsers.serverId, servers.id))
       .innerJoin(sessions, eq(violations.sessionId, sessions.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(violations.createdAt))
+      .orderBy(getViolationOrderBy(orderBy, orderDir))
       .limit(pageSize)
       .offset(offset);
 

@@ -498,6 +498,7 @@ export function UserDetail() {
             page={sessionsPage}
             onPageChange={setSessionsPage}
             isLoading={sessionsLoading}
+            isServerFiltered
             emptyMessage="No sessions found for this user."
           />
         </CardContent>
@@ -517,6 +518,7 @@ export function UserDetail() {
             page={violationsPage}
             onPageChange={setViolationsPage}
             isLoading={violationsLoading}
+            isServerFiltered
             emptyMessage="No violations for this user."
           />
         </CardContent>
@@ -539,6 +541,7 @@ export function UserDetail() {
             page={terminationsPage}
             onPageChange={setTerminationsPage}
             isLoading={terminationsLoading}
+            isServerFiltered
             emptyMessage="No stream terminations for this user."
           />
         </CardContent>

@@ -11,19 +11,174 @@ import { eq, sql } from 'drizzle-orm';
 import {
   sessionQuerySchema,
   historyQuerySchema,
+  historyAggregatesQuerySchema,
   sessionIdParamSchema,
   serverIdFilterSchema,
   terminateSessionBodySchema,
   REDIS_KEYS,
+  type AuthUser,
   type ActiveSession,
   type HistorySessionResponse,
+  type HistoryAggregates,
   type HistoryFilterOptions,
+  type HistoryAggregatesQueryInput,
 } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { sessions, serverUsers, servers, users } from '../db/schema.js';
 import { filterByServerAccess, hasServerAccess } from '../utils/serverFiltering.js';
 import { terminateSession } from '../services/termination.js';
 import { getCacheService } from '../services/cache.js';
+
+/**
+ * Result from building history filter conditions.
+ * Returns null if user has no server access (caller should return empty result).
+ */
+type HistoryFilterResult = {
+  conditions: ReturnType<typeof sql>[];
+  whereClause: ReturnType<typeof sql>;
+} | null;
+
+/**
+ * Build WHERE clause conditions for history queries.
+ * Shared between /history and /history/aggregates endpoints.
+ *
+ * @returns null if user has no server access (caller should return empty result)
+ */
+function buildHistoryFilterConditions(
+  params: HistoryAggregatesQueryInput,
+  authUser: AuthUser
+): HistoryFilterResult {
+  const {
+    serverUserIds,
+    serverId,
+    state,
+    mediaTypes,
+    startDate,
+    endDate,
+    search,
+    platforms,
+    product,
+    device,
+    playerName,
+    ipAddress,
+    geoCountries,
+    geoCity,
+    geoRegion,
+    transcodeDecisions,
+    watched,
+    excludeShortSessions,
+  } = params;
+
+  const conditions: ReturnType<typeof sql>[] = [];
+
+  // Filter by user's accessible servers (owners see all)
+  if (authUser.role !== 'owner') {
+    if (authUser.serverIds.length === 0) {
+      return null; // No server access
+    } else if (authUser.serverIds.length === 1) {
+      conditions.push(sql`s.server_id = ${authUser.serverIds[0]}`);
+    } else {
+      const serverIdList = authUser.serverIds.map((id: string) => sql`${id}`);
+      conditions.push(sql`s.server_id IN (${sql.join(serverIdList, sql`, `)})`);
+    }
+  }
+
+  if (serverUserIds && serverUserIds.length > 0) {
+    const ids = serverUserIds as string[];
+    if (ids.length === 1) {
+      conditions.push(sql`s.server_user_id = ${ids[0]}`);
+    } else {
+      const userIdList = ids.map((id) => sql`${id}`);
+      conditions.push(sql`s.server_user_id IN (${sql.join(userIdList, sql`, `)})`);
+    }
+  }
+  if (serverId) conditions.push(sql`s.server_id = ${serverId}`);
+  if (state) conditions.push(sql`s.state = ${state}`);
+  if (mediaTypes && mediaTypes.length > 0) {
+    const types = mediaTypes as string[];
+    if (types.length === 1) {
+      conditions.push(sql`s.media_type = ${types[0]}`);
+    } else {
+      const mediaTypeList = types.map((t) => sql`${t}`);
+      conditions.push(sql`s.media_type IN (${sql.join(mediaTypeList, sql`, `)})`);
+    }
+  }
+  if (startDate) conditions.push(sql`s.started_at >= ${startDate}`);
+  if (endDate) {
+    // Adjust endDate to end of day (23:59:59.999) to include all sessions from that day
+    const endOfDay = new Date(endDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    conditions.push(sql`s.started_at <= ${endOfDay}`);
+  }
+
+  // Full-text search across multiple fields
+  if (search) {
+    const searchPattern = `%${search}%`;
+    conditions.push(
+      sql`(
+          s.media_title ILIKE ${searchPattern}
+          OR s.grandparent_title ILIKE ${searchPattern}
+          OR s.geo_city ILIKE ${searchPattern}
+          OR s.geo_country ILIKE ${searchPattern}
+          OR s.ip_address ILIKE ${searchPattern}
+          OR s.platform ILIKE ${searchPattern}
+          OR s.product ILIKE ${searchPattern}
+          OR EXISTS (
+            SELECT 1 FROM server_users su_search
+            LEFT JOIN users u_search ON u_search.id = su_search.user_id
+            WHERE su_search.id = s.server_user_id
+            AND (su_search.username ILIKE ${searchPattern} OR u_search.name ILIKE ${searchPattern})
+          )
+        )`
+    );
+  }
+
+  if (platforms && platforms.length > 0) {
+    const plats = platforms as string[];
+    if (plats.length === 1) {
+      conditions.push(sql`s.platform = ${plats[0]}`);
+    } else {
+      const platformList = plats.map((p) => sql`${p}`);
+      conditions.push(sql`s.platform IN (${sql.join(platformList, sql`, `)})`);
+    }
+  }
+  if (product) conditions.push(sql`s.product = ${product}`);
+  if (device) conditions.push(sql`s.device = ${device}`);
+  if (playerName) conditions.push(sql`s.player_name ILIKE ${`%${playerName}%`}`);
+
+  if (ipAddress) conditions.push(sql`s.ip_address = ${ipAddress}`);
+  if (geoCountries && geoCountries.length > 0) {
+    const countries = geoCountries as string[];
+    if (countries.length === 1) {
+      conditions.push(sql`s.geo_country = ${countries[0]}`);
+    } else {
+      const countryList = countries.map((c) => sql`${c}`);
+      conditions.push(sql`s.geo_country IN (${sql.join(countryList, sql`, `)})`);
+    }
+  }
+  if (geoCity) conditions.push(sql`s.geo_city = ${geoCity}`);
+  if (geoRegion) conditions.push(sql`s.geo_region = ${geoRegion}`);
+
+  if (transcodeDecisions && transcodeDecisions.length > 0 && transcodeDecisions.length < 3) {
+    const decisions = transcodeDecisions as string[];
+    if (decisions.length === 1) {
+      conditions.push(sql`s.video_decision = ${decisions[0]}`);
+    } else {
+      const decisionList = decisions.map((d) => sql`${d}`);
+      conditions.push(sql`s.video_decision IN (${sql.join(decisionList, sql`, `)})`);
+    }
+  }
+
+  // Status filters
+  if (watched !== undefined) conditions.push(sql`s.watched = ${watched}`);
+  if (excludeShortSessions) conditions.push(sql`s.short_session = false`);
+
+  // Build WHERE clause
+  const whereClause =
+    conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
+
+  return { conditions, whereClause };
+}
 
 export const sessionRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -361,149 +516,17 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       return reply.badRequest('Invalid query parameters');
     }
 
-    const {
-      cursor,
-      pageSize = 50,
-      serverUserIds,
-      serverId,
-      state,
-      mediaTypes,
-      startDate,
-      endDate,
-      search,
-      platforms,
-      product,
-      device,
-      playerName,
-      ipAddress,
-      geoCountries,
-      geoCity,
-      geoRegion,
-      transcodeDecisions,
-      watched,
-      excludeShortSessions,
-      orderBy = 'startedAt',
-      orderDir = 'desc',
-    } = query.data;
+    const { cursor, pageSize = 50, orderBy = 'startedAt', orderDir = 'desc' } = query.data;
 
     const authUser = request.user;
 
-    // Build WHERE clause conditions for the CTE
-    const conditions: ReturnType<typeof sql>[] = [];
-
-    // Filter by user's accessible servers (owners see all)
-    if (authUser.role !== 'owner') {
-      if (authUser.serverIds.length === 0) {
-        // No server access - return empty result
-        const emptyResponse: HistorySessionResponse = {
-          data: [],
-          aggregates: {
-            totalWatchTimeMs: 0,
-            playCount: 0,
-            uniqueUsers: 0,
-            uniqueContent: 0,
-          },
-          total: 0,
-          hasMore: false,
-        };
-        return emptyResponse;
-      } else if (authUser.serverIds.length === 1) {
-        conditions.push(sql`s.server_id = ${authUser.serverIds[0]}`);
-      } else {
-        const serverIdList = authUser.serverIds.map((id: string) => sql`${id}`);
-        conditions.push(sql`s.server_id IN (${sql.join(serverIdList, sql`, `)})`);
-      }
+    // Build WHERE clause using shared helper
+    const filterResult = buildHistoryFilterConditions(query.data, authUser);
+    if (!filterResult) {
+      // No server access - return empty result
+      return { data: [], hasMore: false } satisfies HistorySessionResponse;
     }
-
-    if (serverUserIds && serverUserIds.length > 0) {
-      const ids = serverUserIds as string[];
-      if (ids.length === 1) {
-        conditions.push(sql`s.server_user_id = ${ids[0]}`);
-      } else {
-        const userIdList = ids.map((id) => sql`${id}`);
-        conditions.push(sql`s.server_user_id IN (${sql.join(userIdList, sql`, `)})`);
-      }
-    }
-    if (serverId) conditions.push(sql`s.server_id = ${serverId}`);
-    if (state) conditions.push(sql`s.state = ${state}`);
-    if (mediaTypes && mediaTypes.length > 0) {
-      const types = mediaTypes as string[];
-      if (types.length === 1) {
-        conditions.push(sql`s.media_type = ${types[0]}`);
-      } else {
-        const mediaTypeList = types.map((t) => sql`${t}`);
-        conditions.push(sql`s.media_type IN (${sql.join(mediaTypeList, sql`, `)})`);
-      }
-    }
-    if (startDate) conditions.push(sql`s.started_at >= ${startDate}`);
-    if (endDate) {
-      // Adjust endDate to end of day (23:59:59.999) to include all sessions from that day
-      const endOfDay = new Date(endDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      conditions.push(sql`s.started_at <= ${endOfDay}`);
-    }
-
-    // Full-text search across multiple fields
-    if (search) {
-      const searchPattern = `%${search}%`;
-      conditions.push(
-        sql`(
-            s.media_title ILIKE ${searchPattern}
-            OR s.grandparent_title ILIKE ${searchPattern}
-            OR s.geo_city ILIKE ${searchPattern}
-            OR s.geo_country ILIKE ${searchPattern}
-            OR s.ip_address ILIKE ${searchPattern}
-            OR s.platform ILIKE ${searchPattern}
-            OR s.product ILIKE ${searchPattern}
-            OR EXISTS (
-              SELECT 1 FROM server_users su_search
-              LEFT JOIN users u_search ON u_search.id = su_search.user_id
-              WHERE su_search.id = s.server_user_id
-              AND (su_search.username ILIKE ${searchPattern} OR u_search.name ILIKE ${searchPattern})
-            )
-          )`
-      );
-    }
-
-    if (platforms && platforms.length > 0) {
-      const plats = platforms as string[];
-      if (plats.length === 1) {
-        conditions.push(sql`s.platform = ${plats[0]}`);
-      } else {
-        const platformList = plats.map((p) => sql`${p}`);
-        conditions.push(sql`s.platform IN (${sql.join(platformList, sql`, `)})`);
-      }
-    }
-    if (product) conditions.push(sql`s.product = ${product}`);
-    if (device) conditions.push(sql`s.device = ${device}`);
-    if (playerName) conditions.push(sql`s.player_name ILIKE ${`%${playerName}%`}`);
-
-    if (ipAddress) conditions.push(sql`s.ip_address = ${ipAddress}`);
-    if (geoCountries && geoCountries.length > 0) {
-      const countries = geoCountries as string[];
-      if (countries.length === 1) {
-        conditions.push(sql`s.geo_country = ${countries[0]}`);
-      } else {
-        const countryList = countries.map((c) => sql`${c}`);
-        conditions.push(sql`s.geo_country IN (${sql.join(countryList, sql`, `)})`);
-      }
-    }
-    if (geoCity) conditions.push(sql`s.geo_city = ${geoCity}`);
-    if (geoRegion) conditions.push(sql`s.geo_region = ${geoRegion}`);
-
-    if (transcodeDecisions && transcodeDecisions.length > 0 && transcodeDecisions.length < 3) {
-      const decisions = transcodeDecisions as string[];
-      if (decisions.length === 1) {
-        conditions.push(sql`s.video_decision = ${decisions[0]}`);
-      } else {
-        const decisionList = decisions.map((d) => sql`${d}`);
-        conditions.push(sql`s.video_decision IN (${sql.join(decisionList, sql`, `)})`);
-      }
-    }
-
-    // Status filters
-    if (watched !== undefined) conditions.push(sql`s.watched = ${watched}`);
-    if (excludeShortSessions) conditions.push(sql`s.short_session = false`);
+    const { whereClause } = filterResult;
 
     // Cursor-based pagination - parse cursor (format: `${startedAt.getTime()}_${playId}`)
     let cursorTime: Date | null = null;
@@ -517,10 +540,6 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
         cursorId = id;
       }
     }
-
-    // Build WHERE clause
-    const whereClause =
-      conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
 
     // Build ORDER BY clause based on orderBy parameter
     // Note: Cursor pagination is based on started_at, so for other columns we use
@@ -772,24 +791,6 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       subtitleInfo: row.subtitle_info,
     }));
 
-    // Get aggregates for the entire filtered result set (without pagination)
-    const aggregateResult = await db.execute(sql`
-        SELECT
-          COUNT(DISTINCT COALESCE(s.reference_id, s.id))::int as play_count,
-          COALESCE(SUM(s.duration_ms), 0)::bigint as total_watch_time_ms,
-          COUNT(DISTINCT s.server_user_id)::int as unique_users,
-          COUNT(DISTINCT s.media_title)::int as unique_content
-        FROM sessions s
-        ${whereClause}
-      `);
-
-    const aggregates = aggregateResult.rows[0] as {
-      play_count: number;
-      total_watch_time_ms: string;
-      unique_users: number;
-      unique_content: number;
-    };
-
     // Generate next cursor
     const lastSession = sessionData[sessionData.length - 1];
     const nextCursor =
@@ -799,18 +800,75 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
 
     const response: HistorySessionResponse = {
       data: sessionData as HistorySessionResponse['data'],
-      aggregates: {
-        totalWatchTimeMs: Number(aggregates.total_watch_time_ms),
-        playCount: aggregates.play_count,
-        uniqueUsers: aggregates.unique_users,
-        uniqueContent: aggregates.unique_content,
-      },
-      total: aggregates.play_count,
       nextCursor,
       hasMore,
     };
 
     return response;
+  });
+
+  /**
+   * GET /sessions/history/aggregates - Get aggregate stats for filtered history
+   *
+   * Returns only aggregate statistics (total plays, watch time, unique users/content)
+   * without the actual session data. This endpoint is called separately from /history
+   * so that sorting changes don't trigger a refetch of these stats (since aggregates
+   * are not affected by sort order).
+   */
+  app.get('/history/aggregates', { preHandler: [app.authenticate] }, async (request, reply) => {
+    const query = historyAggregatesQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.badRequest('Invalid query parameters');
+    }
+
+    const authUser = request.user;
+
+    // Validate serverId access if provided (consistent with /filter-options)
+    const { serverId } = query.data;
+    if (serverId && !hasServerAccess(authUser, serverId)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+
+    // Build WHERE clause using shared helper
+    const filterResult = buildHistoryFilterConditions(query.data, authUser);
+    if (!filterResult) {
+      // No server access - return empty result
+      const emptyAggregates: HistoryAggregates = {
+        totalWatchTimeMs: 0,
+        playCount: 0,
+        uniqueUsers: 0,
+        uniqueContent: 0,
+      };
+      return emptyAggregates;
+    }
+    const { whereClause } = filterResult;
+
+    // Get aggregates
+    const aggregateResult = await db.execute(sql`
+      SELECT
+        COUNT(DISTINCT COALESCE(s.reference_id, s.id))::int as play_count,
+        COALESCE(SUM(s.duration_ms), 0)::bigint as total_watch_time_ms,
+        COUNT(DISTINCT s.server_user_id)::int as unique_users,
+        COUNT(DISTINCT s.media_title)::int as unique_content
+      FROM sessions s
+      ${whereClause}
+    `);
+
+    const result = aggregateResult.rows[0] as {
+      play_count: number;
+      total_watch_time_ms: string;
+      unique_users: number;
+      unique_content: number;
+    };
+
+    const aggregates: HistoryAggregates = {
+      totalWatchTimeMs: Number(result.total_watch_time_ms),
+      playCount: result.play_count,
+      uniqueUsers: result.unique_users,
+      uniqueContent: result.unique_content,
+    };
+
+    return aggregates;
   });
 
   /**

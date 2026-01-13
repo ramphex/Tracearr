@@ -267,6 +267,13 @@
       "when": 1768300000000,
       "tag": "0037_add_server_user_last_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1768325988279,
+      "tag": "0038_index_cleanup",
+      "breakpoints": true
     }
   ]
 }

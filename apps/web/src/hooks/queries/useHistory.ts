@@ -4,7 +4,7 @@
  */
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import type { HistoryQueryInput } from '@tracearr/shared';
+import type { HistoryQueryInput, HistoryAggregatesQueryInput } from '@tracearr/shared';
 import { api } from '@/lib/api';
 
 /**
@@ -52,6 +52,24 @@ export function useHistorySessions(filters: HistoryFilters = {}, pageSize = 50) 
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     staleTime: 1000 * 30, // 30 seconds
+  });
+}
+
+/**
+ * Filters for aggregates query - excludes sorting/pagination params.
+ * Uses the schema-derived type from shared package for consistency.
+ */
+export type AggregateFilters = Partial<HistoryAggregatesQueryInput>;
+
+/**
+ * Query for aggregate stats (total plays, watch time, unique users/content).
+ * Called separately from useHistorySessions so sorting changes don't refetch stats.
+ */
+export function useHistoryAggregates(filters: AggregateFilters = {}) {
+  return useQuery({
+    queryKey: ['sessions', 'history', 'aggregates', filters],
+    queryFn: () => api.sessions.historyAggregates(filters),
+    staleTime: 1000 * 60, // 1 minute - aggregates can be cached longer
   });
 }
 

@@ -342,13 +342,13 @@ export const sessions = pgTable(
     ),
     // Indexes for stats queries
     index('sessions_geo_idx').on(table.geoLat, table.geoLon), // For /stats/locations basic geo lookup
-    index('sessions_geo_time_idx').on(table.startedAt, table.geoLat, table.geoLon), // For time-filtered map queries
+    // sessions_geo_time_idx removed - superseded by idx_sessions_geo_partial in timescale.ts
     index('sessions_media_type_idx').on(table.mediaType), // For media type aggregations
     index('sessions_transcode_idx').on(table.isTranscode), // For quality stats
     index('sessions_platform_idx').on(table.platform), // For platform stats
-    // Indexes for top-content queries (movies and shows aggregation)
-    index('sessions_top_movies_idx').on(table.mediaType, table.mediaTitle, table.year), // For top movies GROUP BY
-    index('sessions_top_shows_idx').on(table.mediaType, table.grandparentTitle), // For top shows GROUP BY series
+    // sessions_top_movies_idx and sessions_top_shows_idx removed - superseded by time-prefixed variants in timescale.ts
+    // Covering index for history aggregates queries (server + date range + reference_id for COUNT DISTINCT)
+    index('idx_sessions_server_date_ref').on(table.serverId, table.startedAt, table.referenceId),
     // Index for stale session detection (active sessions that haven't been seen recently)
     index('sessions_stale_detection_idx').on(table.lastSeenAt, table.stoppedAt),
   ]

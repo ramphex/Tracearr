@@ -206,6 +206,15 @@ export const historyQuerySchema = z.object({
   orderDir: z.enum(['asc', 'desc']).default('desc'),
 });
 
+// Aggregates query - same filters as history but without sorting/pagination
+// Used for separate aggregates endpoint so sorting changes don't reload stats
+export const historyAggregatesQuerySchema = historyQuerySchema.omit({
+  cursor: true,
+  pageSize: true,
+  orderBy: true,
+  orderDir: true,
+});
+
 export const sessionIdParamSchema = z.object({
   id: uuidSchema,
 });
@@ -279,6 +288,9 @@ export const ruleIdParamSchema = z.object({
 // Violation Schemas
 // ============================================================================
 
+export const violationSortFieldSchema = z.enum(['createdAt', 'severity', 'user', 'rule']);
+export type ViolationSortField = z.infer<typeof violationSortFieldSchema>;
+
 export const violationQuerySchema = paginationSchema.extend({
   serverId: uuidSchema.optional(),
   serverUserId: uuidSchema.optional(),
@@ -287,6 +299,8 @@ export const violationQuerySchema = paginationSchema.extend({
   acknowledged: booleanStringSchema.optional(),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
+  orderBy: violationSortFieldSchema.optional(),
+  orderDir: z.enum(['asc', 'desc']).optional(),
 });
 
 export const violationIdParamSchema = z.object({
@@ -596,6 +610,7 @@ export type CreateServerInput = z.infer<typeof createServerSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type SessionQueryInput = z.infer<typeof sessionQuerySchema>;
 export type HistoryQueryInput = z.infer<typeof historyQuerySchema>;
+export type HistoryAggregatesQueryInput = z.infer<typeof historyAggregatesQuerySchema>;
 export type CreateRuleInput = z.infer<typeof createRuleSchema>;
 export type UpdateRuleInput = z.infer<typeof updateRuleSchema>;
 export type ViolationQueryInput = z.infer<typeof violationQuerySchema>;

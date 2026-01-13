@@ -176,6 +176,7 @@ export {
   // Session
   sessionQuerySchema,
   historyQuerySchema,
+  historyAggregatesQuerySchema,
   sessionIdParamSchema,
   terminateSessionBodySchema,
   // Rule
@@ -189,6 +190,7 @@ export {
   updateRuleSchema,
   ruleIdParamSchema,
   // Violation
+  violationSortFieldSchema,
   violationQuerySchema,
   violationIdParamSchema,
   // Stats
@@ -224,9 +226,11 @@ export type {
   UpdateUserIdentityInput,
   SessionQueryInput,
   HistoryQueryInput,
+  HistoryAggregatesQueryInput,
   CreateRuleInput,
   UpdateRuleInput,
   ViolationQueryInput,
+  ViolationSortField,
   ServerIdFilterInput,
   DashboardQueryInput,
   StatsQueryInput,

@@ -780,14 +780,10 @@ export interface HistoryAggregates {
 
 /**
  * Response shape for history/sessions queries with cursor-based pagination.
- * Supports infinite scroll patterns with aggregate stats.
+ * Aggregate stats are fetched separately via /sessions/history/aggregates.
  */
 export interface HistorySessionResponse {
   data: SessionWithDetails[];
-  /** Aggregate stats for the entire filtered result set */
-  aggregates: HistoryAggregates;
-  /** Total count of matching plays */
-  total: number;
   /** Cursor for fetching the next page (undefined if no more results) */
   nextCursor?: string;
   /** Whether more results exist beyond the current page */
