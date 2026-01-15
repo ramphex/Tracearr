@@ -34,10 +34,22 @@ import type {
   HistorySessionResponse,
   HistoryFilterOptions,
   HistoryQueryInput,
+  HistoryAggregatesQueryInput,
+  HistoryAggregates,
   VersionInfo,
   EngagementStats,
   ShowStatsResponse,
   MediaType,
+  WebhookFormat,
+  // New analytics types
+  DeviceCompatibilityResponse,
+  DeviceCompatibilityMatrix,
+  DeviceHealthResponse,
+  TranscodeHotspotsResponse,
+  TopTranscodingUsersResponse,
+  DailyBandwidthResponse,
+  BandwidthTopUsersResponse,
+  BandwidthSummary,
 } from '@tracearr/shared';
 
 // Re-export shared types needed by frontend components
@@ -244,8 +256,8 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message ?? `Request failed: ${response.status}`);
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.message ?? errorBody.error ?? `Request failed: ${response.status}`);
     }
 
     // Handle empty responses (204 No Content) or responses without JSON
@@ -380,6 +392,12 @@ class ApiClient {
         method: 'DELETE',
       }),
 
+    // Get connections for a specific Plex server (for editing URL)
+    getPlexServerConnections: (serverId: string) =>
+      this.request<{ server: PlexDiscoveredServer | null }>(
+        `/auth/plex/server-connections/${serverId}`
+      ),
+
     // Jellyfin server connection with API key (requires auth)
     connectJellyfinWithApiKey: (data: { serverUrl: string; serverName: string; apiKey: string }) =>
       this.request<{
@@ -424,6 +442,11 @@ class ApiClient {
     },
     create: (data: { name: string; type: string; url: string; token: string }) =>
       this.request<Server>('/servers', { method: 'POST', body: JSON.stringify(data) }),
+    updateUrl: (id: string, url: string, clientIdentifier?: string) =>
+      this.request<Server>(`/servers/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ url, ...(clientIdentifier && { clientIdentifier }) }),
+      }),
     delete: (id: string) => this.request<void>(`/servers/${id}`, { method: 'DELETE' }),
     sync: (id: string) =>
       this.request<{
@@ -450,6 +473,12 @@ class ApiClient {
         }[];
         fetchedAt: string;
       }>(`/servers/${id}/statistics`),
+    health: async () => {
+      const response = await this.request<{
+        data: { serverId: string; serverName: string }[];
+      }>('/servers/health');
+      return response.data;
+    },
   };
 
   // Users
@@ -541,6 +570,37 @@ class ApiClient {
       return this.request<HistorySessionResponse>(`/sessions/history?${searchParams.toString()}`);
     },
     /**
+     * Get aggregate stats for history (total plays, watch time, unique users/content).
+     * Called separately from history() so sorting changes don't refetch these stats.
+     */
+    historyAggregates: (params: Partial<HistoryAggregatesQueryInput>) => {
+      const searchParams = new URLSearchParams();
+      if (params.serverUserIds?.length)
+        searchParams.set('serverUserIds', params.serverUserIds.join(','));
+      if (params.serverId) searchParams.set('serverId', params.serverId);
+      if (params.state) searchParams.set('state', params.state);
+      if (params.mediaTypes?.length) searchParams.set('mediaTypes', params.mediaTypes.join(','));
+      if (params.startDate) searchParams.set('startDate', params.startDate.toISOString());
+      if (params.endDate) searchParams.set('endDate', params.endDate.toISOString());
+      if (params.search) searchParams.set('search', params.search);
+      if (params.platforms?.length) searchParams.set('platforms', params.platforms.join(','));
+      if (params.product) searchParams.set('product', params.product);
+      if (params.device) searchParams.set('device', params.device);
+      if (params.playerName) searchParams.set('playerName', params.playerName);
+      if (params.ipAddress) searchParams.set('ipAddress', params.ipAddress);
+      if (params.geoCountries?.length)
+        searchParams.set('geoCountries', params.geoCountries.join(','));
+      if (params.geoCity) searchParams.set('geoCity', params.geoCity);
+      if (params.geoRegion) searchParams.set('geoRegion', params.geoRegion);
+      if (params.transcodeDecisions?.length)
+        searchParams.set('transcodeDecisions', params.transcodeDecisions.join(','));
+      if (params.watched !== undefined) searchParams.set('watched', String(params.watched));
+      if (params.excludeShortSessions) searchParams.set('excludeShortSessions', 'true');
+      return this.request<HistoryAggregates>(
+        `/sessions/history/aggregates?${searchParams.toString()}`
+      );
+    },
+    /**
      * Get available filter values for dropdowns on the History page.
      * Accepts optional date range to match history query filters.
      */
@@ -592,6 +652,8 @@ class ApiClient {
       severity?: string;
       acknowledged?: boolean;
       serverId?: string;
+      orderBy?: string;
+      orderDir?: 'asc' | 'desc';
     }) => {
       const searchParams = new URLSearchParams();
       if (params?.page) searchParams.set('page', String(params.page));
@@ -601,6 +663,8 @@ class ApiClient {
       if (params?.acknowledged !== undefined)
         searchParams.set('acknowledged', String(params.acknowledged));
       if (params?.serverId) searchParams.set('serverId', params.serverId);
+      if (params?.orderBy) searchParams.set('orderBy', params.orderBy);
+      if (params?.orderDir) searchParams.set('orderDir', params.orderDir);
       return this.request<PaginatedResponse<ViolationWithDetails>>(
         `/violations?${searchParams.toString()}`
       );
@@ -755,6 +819,65 @@ class ApiClient {
       if (options?.orderBy) params.set('orderBy', options.orderBy);
       return this.request<ShowStatsResponse>(`/stats/shows?${params.toString()}`);
     },
+
+    // Device compatibility stats
+    deviceCompatibility: async (timeRange?: StatsTimeRange, serverId?: string, minSessions = 5) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      params.set('minSessions', String(minSessions));
+      return this.request<DeviceCompatibilityResponse>(
+        `/stats/device-compatibility?${params.toString()}`
+      );
+    },
+    deviceCompatibilityMatrix: async (
+      timeRange?: StatsTimeRange,
+      serverId?: string,
+      minSessions = 5
+    ) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      params.set('minSessions', String(minSessions));
+      return this.request<DeviceCompatibilityMatrix>(
+        `/stats/device-compatibility/matrix?${params.toString()}`
+      );
+    },
+    deviceHealth: async (timeRange?: StatsTimeRange, serverId?: string) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      return this.request<DeviceHealthResponse>(
+        `/stats/device-compatibility/health?${params.toString()}`
+      );
+    },
+    transcodeHotspots: async (timeRange?: StatsTimeRange, serverId?: string) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      return this.request<TranscodeHotspotsResponse>(
+        `/stats/device-compatibility/hotspots?${params.toString()}`
+      );
+    },
+    topTranscodingUsers: async (timeRange?: StatsTimeRange, serverId?: string) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      return this.request<TopTranscodingUsersResponse>(
+        `/stats/device-compatibility/top-transcoding-users?${params.toString()}`
+      );
+    },
+
+    // Bandwidth stats
+    bandwidthDaily: async (
+      timeRange?: StatsTimeRange,
+      serverId?: string,
+      serverUserId?: string
+    ) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      if (serverUserId) params.set('serverUserId', serverUserId);
+      return this.request<DailyBandwidthResponse>(`/stats/bandwidth/daily?${params.toString()}`);
+    },
+    bandwidthTopUsers: async (timeRange?: StatsTimeRange, serverId?: string) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      return this.request<BandwidthTopUsersResponse>(
+        `/stats/bandwidth/top-users?${params.toString()}`
+      );
+    },
+    bandwidthSummary: async (timeRange?: StatsTimeRange, serverId?: string) => {
+      const params = this.buildStatsParams(timeRange ?? { period: 'month' }, serverId);
+      return this.request<BandwidthSummary>(`/stats/bandwidth/summary?${params.toString()}`);
+    },
   };
 
   // Settings
@@ -765,9 +888,11 @@ class ApiClient {
     testWebhook: (data: {
       type: 'discord' | 'custom';
       url?: string;
-      format?: 'json' | 'ntfy' | 'apprise';
+      format?: WebhookFormat;
       ntfyTopic?: string;
       ntfyAuthToken?: string;
+      pushoverUserKey?: string;
+      pushoverApiToken?: string;
     }) =>
       this.request<{ success: boolean; error?: string }>('/settings/test-webhook', {
         method: 'POST',
@@ -780,7 +905,12 @@ class ApiClient {
     getAll: () => this.request<NotificationChannelRouting[]>('/settings/notifications/routing'),
     update: (
       eventType: NotificationEventType,
-      data: { discordEnabled?: boolean; webhookEnabled?: boolean }
+      data: {
+        discordEnabled?: boolean;
+        webhookEnabled?: boolean;
+        webToastEnabled?: boolean;
+        pushEnabled?: boolean;
+      }
     ) =>
       this.request<NotificationChannelRouting>(`/settings/notifications/routing/${eventType}`, {
         method: 'PATCH',
@@ -798,10 +928,14 @@ class ApiClient {
           users?: number;
           historyRecords?: number;
         }>('/import/tautulli/test', { method: 'POST', body: JSON.stringify({ url, apiKey }) }),
-      start: (serverId: string) =>
+      start: (
+        serverId: string,
+        overwriteFriendlyNames: boolean = false,
+        includeStreamDetails: boolean = false
+      ) =>
         this.request<{ status: string; jobId?: string; message: string }>('/import/tautulli', {
           method: 'POST',
-          body: JSON.stringify({ serverId }),
+          body: JSON.stringify({ serverId, overwriteFriendlyNames, includeStreamDetails }),
         }),
       getActive: (serverId: string) =>
         this.request<{
@@ -834,12 +968,19 @@ class ApiClient {
        * @param serverId - Target Jellyfin/Emby server
        * @param file - Jellystat backup JSON file
        * @param enrichMedia - Whether to enrich with metadata (default: true)
+       * @param updateStreamDetails - Whether to update existing records with stream data (default: false)
        */
-      start: async (serverId: string, file: File, enrichMedia: boolean = true) => {
+      start: async (
+        serverId: string,
+        file: File,
+        enrichMedia: boolean = true,
+        updateStreamDetails: boolean = false
+      ) => {
         const formData = new FormData();
         // Fields must come BEFORE file - @fastify/multipart stops parsing after file
         formData.append('serverId', serverId);
         formData.append('enrichMedia', String(enrichMedia));
+        formData.append('updateStreamDetails', String(updateStreamDetails));
         formData.append('file', file);
 
         return this.request<{ status: string; jobId?: string; message: string }>(
@@ -867,6 +1008,7 @@ class ApiClient {
           result?: {
             success: boolean;
             imported: number;
+            updated: number;
             skipped: number;
             errors: number;
             enriched: number;

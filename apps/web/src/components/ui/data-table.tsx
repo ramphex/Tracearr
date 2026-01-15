@@ -11,6 +11,8 @@ import {
   type PaginationState,
   type FilterFn,
 } from '@tanstack/react-table';
+
+export type { SortingState };
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,9 +37,14 @@ interface DataTableProps<TData, TValue> {
   page?: number;
   onPageChange?: (page: number) => void;
   isLoading?: boolean;
-  // Filtering props
+  // Server-side sorting props
+  sorting?: SortingState;
+  onSortingChange?: (sorting: SortingState) => void;
+  // Client-side filtering props (skip if data is pre-filtered from server)
   filterColumn?: string;
   filterValue?: string;
+  // Set to true when data arrives pre-filtered from server (skips client-side filtering)
+  isServerFiltered?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -51,16 +58,21 @@ export function DataTable<TData, TValue>({
   page,
   onPageChange,
   isLoading,
+  sorting: externalSorting,
+  onSortingChange,
   filterColumn,
   filterValue,
+  isServerFiltered = false,
 }: DataTableProps<TData, TValue>) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: page ? page - 1 : 0,
     pageSize,
   });
 
   const isServerPaginated = pageCount !== undefined && onPageChange !== undefined;
+  const isServerSorted = onSortingChange !== undefined;
+  const sorting = externalSorting ?? internalSorting;
 
   // Custom filter function that searches in the specified column
   const globalFilterFn: FilterFn<TData> = useMemo(() => {
@@ -72,21 +84,32 @@ export function DataTable<TData, TValue>({
     };
   }, [filterColumn]);
 
+  const handleSortingChange = (updater: SortingState | ((old: SortingState) => SortingState)) => {
+    const newSorting = typeof updater === 'function' ? updater(sorting) : updater;
+    if (isServerSorted) {
+      onSortingChange(newSorting);
+    } else {
+      setInternalSorting(newSorting);
+    }
+  };
+
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: isServerSorted ? undefined : getSortedRowModel(),
+    getFilteredRowModel: isServerFiltered ? undefined : getFilteredRowModel(),
     getPaginationRowModel: isServerPaginated ? undefined : getPaginationRowModel(),
-    globalFilterFn,
-    onSortingChange: setSorting,
+    globalFilterFn: isServerFiltered ? undefined : globalFilterFn,
+    onSortingChange: handleSortingChange,
     onPaginationChange: setPagination,
     manualPagination: isServerPaginated,
+    manualSorting: isServerSorted,
+    manualFiltering: isServerFiltered,
     pageCount: isServerPaginated ? pageCount : undefined,
     state: {
       sorting,
-      globalFilter: filterValue ?? '',
+      globalFilter: isServerFiltered ? undefined : (filterValue ?? ''),
       pagination: isServerPaginated ? { pageIndex: (page ?? 1) - 1, pageSize } : pagination,
     },
   });

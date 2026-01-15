@@ -25,6 +25,7 @@ import {
   check,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
+import { MEDIA_TYPES, type WebhookFormat } from '@tracearr/shared';
 
 // Server types enum
 export const serverTypeEnum = ['plex', 'jellyfin', 'emby'] as const;
@@ -32,8 +33,8 @@ export const serverTypeEnum = ['plex', 'jellyfin', 'emby'] as const;
 // Session state enum
 export const sessionStateEnum = ['playing', 'paused', 'stopped'] as const;
 
-// Media type enum
-export const mediaTypeEnum = ['movie', 'episode', 'track'] as const;
+// Media type enum - imported from shared package
+export const mediaTypeEnum = MEDIA_TYPES;
 
 // Rule type enum
 export const ruleTypeEnum = [
@@ -46,6 +47,29 @@ export const ruleTypeEnum = [
 
 // Violation severity enum
 export const violationSeverityEnum = ['low', 'warning', 'high'] as const;
+
+// ============================================================
+// Stream Details JSONB Types (imported from shared package)
+// ============================================================
+
+import type {
+  SourceVideoDetails,
+  SourceAudioDetails,
+  StreamVideoDetails,
+  StreamAudioDetails,
+  TranscodeInfo,
+  SubtitleInfo,
+} from '@tracearr/shared';
+
+// Re-export for consumers of this module
+export type {
+  SourceVideoDetails,
+  SourceAudioDetails,
+  StreamVideoDetails,
+  StreamAudioDetails,
+  TranscodeInfo,
+  SubtitleInfo,
+};
 
 // Media servers (Plex/Jellyfin/Emby instances)
 export const servers = pgTable(
@@ -164,13 +188,19 @@ export const serverUsers = pgTable(
       .references(() => servers.id, { onDelete: 'cascade' }),
 
     // Server-specific identity
-    externalId: varchar('external_id', { length: 255 }).notNull(), // Plex/Jellyfin user ID
+    externalId: varchar('external_id', { length: 255 }).notNull(), // Local server user ID (Plex PMS ID / Jellyfin ID)
+    // For Plex: plex.tv account ID (different from local PMS ID). Used for sync matching.
+    // Sessions use externalId (local PMS ID), sync uses plexAccountId (plex.tv ID)
+    plexAccountId: varchar('plex_account_id', { length: 255 }),
     username: varchar('username', { length: 255 }).notNull(), // Username on this server
     email: varchar('email', { length: 255 }), // Email from server sync (may differ from users.email)
     thumbUrl: text('thumb_url'), // Avatar from server
 
     // When user joined/was added to media server (Plex provides this, Jellyfin/Emby don't)
     joinedAt: timestamp('joined_at', { withTimezone: true }),
+
+    // Last activity timestamp
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
 
     // Server-specific permissions
     isServerAdmin: boolean('is_server_admin').notNull().default(false),
@@ -192,6 +222,8 @@ export const serverUsers = pgTable(
     index('server_users_user_idx').on(table.userId),
     index('server_users_server_idx').on(table.serverId),
     index('server_users_username_idx').on(table.username),
+    // For Plex sync matching by plex.tv account ID
+    index('server_users_plex_account_idx').on(table.serverId, table.plexAccountId),
   ]
 );
 
@@ -256,6 +288,41 @@ export const sessions = pgTable(
     videoDecision: varchar('video_decision', { length: 50 }),
     audioDecision: varchar('audio_decision', { length: 50 }),
     bitrate: integer('bitrate'),
+    // Live TV specific fields (null for non-live content)
+    channelTitle: varchar('channel_title', { length: 255 }), // Channel name (e.g., "HBO", "ESPN")
+    channelIdentifier: varchar('channel_identifier', { length: 100 }), // Channel number/ID
+    channelThumb: varchar('channel_thumb', { length: 500 }), // Channel logo path
+    // Music track metadata (null for non-track content)
+    artistName: varchar('artist_name', { length: 255 }), // Artist name
+    albumName: varchar('album_name', { length: 255 }), // Album name
+    trackNumber: integer('track_number'), // Track number in album
+    discNumber: integer('disc_number'), // Disc number for multi-disc albums
+
+    // ============ Stream Details (Source Media) ============
+    // Scalar columns for high-frequency queries (indexed)
+    sourceVideoCodec: varchar('source_video_codec', { length: 50 }), // H264, HEVC, VP9, AV1
+    sourceVideoWidth: integer('source_video_width'), // pixels
+    sourceVideoHeight: integer('source_video_height'), // pixels
+    sourceAudioCodec: varchar('source_audio_codec', { length: 50 }), // TrueHD, DTS-HD MA, AAC
+    sourceAudioChannels: integer('source_audio_channels'), // 2, 6, 8
+
+    // ============ Stream Details (Delivered to Client) ============
+    streamVideoCodec: varchar('stream_video_codec', { length: 50 }), // Codec after transcode
+    streamAudioCodec: varchar('stream_audio_codec', { length: 50 }), // Codec after transcode
+
+    // ============ Detailed JSONB Fields ============
+    // Source video: bitrate, framerate, dynamicRange, aspectRatio, profile, level, colorSpace, colorDepth
+    sourceVideoDetails: jsonb('source_video_details').$type<SourceVideoDetails>(),
+    // Source audio: bitrate, channelLayout, language, sampleRate
+    sourceAudioDetails: jsonb('source_audio_details').$type<SourceAudioDetails>(),
+    // Stream video: bitrate, width, height, framerate, dynamicRange
+    streamVideoDetails: jsonb('stream_video_details').$type<StreamVideoDetails>(),
+    // Stream audio: bitrate, channels, language
+    streamAudioDetails: jsonb('stream_audio_details').$type<StreamAudioDetails>(),
+    // Transcode: containerDecision, sourceContainer, streamContainer, hwDecoding, hwEncoding, speed, throttled
+    transcodeInfo: jsonb('transcode_info').$type<TranscodeInfo>(),
+    // Subtitle: decision, codec, language, forced
+    subtitleInfo: jsonb('subtitle_info').$type<SubtitleInfo>(),
   },
   (table) => [
     index('sessions_server_user_time_idx').on(table.serverUserId, table.startedAt),
@@ -275,13 +342,13 @@ export const sessions = pgTable(
     ),
     // Indexes for stats queries
     index('sessions_geo_idx').on(table.geoLat, table.geoLon), // For /stats/locations basic geo lookup
-    index('sessions_geo_time_idx').on(table.startedAt, table.geoLat, table.geoLon), // For time-filtered map queries
+    // sessions_geo_time_idx removed - superseded by idx_sessions_geo_partial in timescale.ts
     index('sessions_media_type_idx').on(table.mediaType), // For media type aggregations
     index('sessions_transcode_idx').on(table.isTranscode), // For quality stats
     index('sessions_platform_idx').on(table.platform), // For platform stats
-    // Indexes for top-content queries (movies and shows aggregation)
-    index('sessions_top_movies_idx').on(table.mediaType, table.mediaTitle, table.year), // For top movies GROUP BY
-    index('sessions_top_shows_idx').on(table.mediaType, table.grandparentTitle), // For top shows GROUP BY series
+    // sessions_top_movies_idx and sessions_top_shows_idx removed - superseded by time-prefixed variants in timescale.ts
+    // Covering index for history aggregates queries (server + date range + reference_id for COUNT DISTINCT)
+    index('idx_sessions_server_date_ref').on(table.serverId, table.startedAt, table.referenceId),
     // Index for stale session detection (active sessions that haven't been seen recently)
     index('sessions_stale_detection_idx').on(table.lastSeenAt, table.stoppedAt),
   ]
@@ -542,14 +609,19 @@ export const settings = pgTable('settings', {
     .notNull()
     .$type<(typeof unitSystemEnum)[number]>()
     .default('metric'),
+  // Notification settings
   discordWebhookUrl: text('discord_webhook_url'),
   customWebhookUrl: text('custom_webhook_url'),
-  webhookFormat: text('webhook_format').$type<'json' | 'ntfy' | 'apprise'>(), // Format for custom webhook payloads
+  webhookFormat: text('webhook_format').$type<WebhookFormat>(), // Format for custom webhook payloads
   ntfyTopic: text('ntfy_topic'), // Topic for ntfy notifications (required when webhookFormat is 'ntfy')
   ntfyAuthToken: text('ntfy_auth_token'), // Auth token for protected ntfy servers (Bearer token)
+  pushoverUserKey: text('pushover_user_key'),
+  pushoverApiToken: text('pushover_api_token'),
   // Poller settings
   pollerEnabled: boolean('poller_enabled').notNull().default(true),
   pollerIntervalMs: integer('poller_interval_ms').notNull().default(15000),
+  // GeoIP settings
+  usePlexGeoip: boolean('use_plex_geoip').notNull().default(false), // Use Plex API for GeoIP lookups (sends IPs to plex.tv)
   // Tautulli integration
   tautulliUrl: text('tautulli_url'),
   tautulliApiKey: text('tautulli_api_key'), // Encrypted

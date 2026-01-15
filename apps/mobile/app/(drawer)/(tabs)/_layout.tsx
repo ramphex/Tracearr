@@ -1,18 +1,12 @@
 /**
- * Main tab navigation layout
+ * Main tab navigation layout (inside drawer)
+ * 4 tabs: Dashboard, Activity, Users, History
  */
 import { Tabs } from 'expo-router';
-import {
-  LayoutDashboard,
-  Activity,
-  Users,
-  Bell,
-  Settings,
-  type LucideIcon,
-} from 'lucide-react-native';
+import { LayoutDashboard, Activity, Users, History, type LucideIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppHeader } from '@/components/navigation/AppHeader';
 import { colors } from '@/lib/theme';
-import { ServerSelector } from '@/components/ServerSelector';
 
 interface TabIconProps {
   icon: LucideIcon;
@@ -37,14 +31,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: true,
-        headerStyle: {
-          backgroundColor: colors.background.dark,
-        },
-        headerTintColor: colors.text.primary.dark,
-        headerTitleStyle: {
-          fontWeight: '600',
-        },
+        header: () => <AppHeader />,
         tabBarStyle: {
           backgroundColor: colors.card.dark,
           borderTopColor: colors.border.dark,
@@ -65,7 +52,6 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          headerTitle: () => <ServerSelector />,
           tabBarLabel: 'Dashboard',
           tabBarIcon: ({ focused }) => <TabIcon icon={LayoutDashboard} focused={focused} />,
         }}
@@ -74,7 +60,6 @@ export default function TabLayout() {
         name="activity"
         options={{
           title: 'Activity',
-          headerTitle: () => <ServerSelector />,
           tabBarLabel: 'Activity',
           tabBarIcon: ({ focused }) => <TabIcon icon={Activity} focused={focused} />,
         }}
@@ -83,26 +68,16 @@ export default function TabLayout() {
         name="users"
         options={{
           title: 'Users',
-          headerTitle: () => <ServerSelector />,
           tabBarLabel: 'Users',
           tabBarIcon: ({ focused }) => <TabIcon icon={Users} focused={focused} />,
         }}
       />
       <Tabs.Screen
-        name="alerts"
+        name="history"
         options={{
-          title: 'Alerts',
-          headerTitle: () => <ServerSelector />,
-          tabBarLabel: 'Alerts',
-          tabBarIcon: ({ focused }) => <TabIcon icon={Bell} focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Settings',
-          tabBarLabel: 'Settings',
-          tabBarIcon: ({ focused }) => <TabIcon icon={Settings} focused={focused} />,
+          title: 'History',
+          tabBarLabel: 'History',
+          tabBarIcon: ({ focused }) => <TabIcon icon={History} focused={focused} />,
         }}
       />
     </Tabs>

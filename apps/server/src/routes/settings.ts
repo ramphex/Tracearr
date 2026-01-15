@@ -4,10 +4,10 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { updateSettingsSchema, type Settings } from '@tracearr/shared';
+import { updateSettingsSchema, type Settings, type WebhookFormat } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { settings } from '../db/schema.js';
-import { sendTestWebhook } from '../services/notify.js';
+import { notificationManager } from '../services/notifications/index.js';
 
 // Default settings row ID (singleton pattern)
 const SETTINGS_ID = 1;
@@ -51,6 +51,8 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
           webhookFormat: settings.webhookFormat,
           ntfyTopic: settings.ntfyTopic,
           ntfyAuthToken: settings.ntfyAuthToken,
+          pushoverUserKey: settings.pushoverUserKey,
+          pushoverApiToken: settings.pushoverApiToken,
           pollerEnabled: settings.pollerEnabled,
           pollerIntervalMs: settings.pollerIntervalMs,
           tautulliUrl: settings.tautulliUrl,
@@ -98,6 +100,12 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       return reply.internalServerError('Failed to load settings');
     }
 
+    // Handle case where usePlexGeoip column might not exist yet (before migration)
+    let usePlexGeoip = false;
+    if ('usePlexGeoip' in row && typeof row.usePlexGeoip === 'boolean') {
+      usePlexGeoip = row.usePlexGeoip;
+    }
+
     const result: Settings = {
       allowGuestAccess: row.allowGuestAccess,
       unitSystem: row.unitSystem,
@@ -106,8 +114,11 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       webhookFormat: row.webhookFormat,
       ntfyTopic: row.ntfyTopic,
       ntfyAuthToken: row.ntfyAuthToken ? '********' : null, // Mask auth token
+      pushoverUserKey: row.pushoverUserKey,
+      pushoverApiToken: row.pushoverApiToken ? '********' : null, // Mask API Token
       pollerEnabled: row.pollerEnabled,
       pollerIntervalMs: row.pollerIntervalMs,
+      usePlexGeoip,
       tautulliUrl: row.tautulliUrl,
       tautulliApiKey: row.tautulliApiKey ? '********' : null, // Mask API key
       externalUrl: row.externalUrl,
@@ -142,11 +153,14 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       unitSystem: 'metric' | 'imperial';
       discordWebhookUrl: string | null;
       customWebhookUrl: string | null;
-      webhookFormat: 'json' | 'ntfy' | 'apprise' | null;
+      webhookFormat: WebhookFormat | null;
       ntfyTopic: string | null;
       ntfyAuthToken: string | null;
+      pushoverUserKey: string | null;
+      pushoverApiToken: string | null;
       pollerEnabled: boolean;
       pollerIntervalMs: number;
+      usePlexGeoip: boolean;
       tautulliUrl: string | null;
       tautulliApiKey: string | null;
       externalUrl: string | null;
@@ -186,12 +200,24 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       updateData.ntfyAuthToken = body.data.ntfyAuthToken;
     }
 
+    if (body.data.pushoverUserKey !== undefined) {
+      updateData.pushoverUserKey = body.data.pushoverUserKey;
+    }
+
+    if (body.data.pushoverApiToken !== undefined) {
+      updateData.pushoverApiToken = body.data.pushoverApiToken;
+    }
+
     if (body.data.pollerEnabled !== undefined) {
       updateData.pollerEnabled = body.data.pollerEnabled;
     }
 
     if (body.data.pollerIntervalMs !== undefined) {
       updateData.pollerIntervalMs = body.data.pollerIntervalMs;
+    }
+
+    if (body.data.usePlexGeoip !== undefined) {
+      updateData.usePlexGeoip = body.data.usePlexGeoip;
     }
 
     if (body.data.tautulliUrl !== undefined) {
@@ -240,8 +266,11 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
         webhookFormat: updateData.webhookFormat ?? null,
         ntfyTopic: updateData.ntfyTopic ?? null,
         ntfyAuthToken: updateData.ntfyAuthToken ?? null,
+        pushoverUserKey: updateData.pushoverUserKey ?? null,
+        pushoverApiToken: updateData.pushoverApiToken ?? null,
         pollerEnabled: updateData.pollerEnabled ?? true,
         pollerIntervalMs: updateData.pollerIntervalMs ?? 15000,
+        usePlexGeoip: updateData.usePlexGeoip ?? false,
         tautulliUrl: updateData.tautulliUrl ?? null,
         tautulliApiKey: updateData.tautulliApiKey ?? null,
         externalUrl: updateData.externalUrl ?? null,
@@ -262,10 +291,14 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       return reply.internalServerError('Failed to update settings');
     }
 
-    // Handle case where primaryAuthMethod column might not exist yet (before migration)
+    // Handle case where columns might not exist yet (before migration)
     let primaryAuthMethod: 'jellyfin' | 'local' = 'local';
     if ('primaryAuthMethod' in row && row.primaryAuthMethod) {
       primaryAuthMethod = row.primaryAuthMethod;
+    }
+    let usePlexGeoip = false;
+    if ('usePlexGeoip' in row && typeof row.usePlexGeoip === 'boolean') {
+      usePlexGeoip = row.usePlexGeoip;
     }
 
     const result: Settings = {
@@ -276,8 +309,11 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       webhookFormat: row.webhookFormat,
       ntfyTopic: row.ntfyTopic,
       ntfyAuthToken: row.ntfyAuthToken ? '********' : null, // Mask auth token
+      pushoverUserKey: row.pushoverUserKey,
+      pushoverApiToken: row.pushoverApiToken ? '********' : null, // Mask API token
       pollerEnabled: row.pollerEnabled,
       pollerIntervalMs: row.pollerIntervalMs,
+      usePlexGeoip,
       tautulliUrl: row.tautulliUrl,
       tautulliApiKey: row.tautulliApiKey ? '********' : null, // Mask API key
       externalUrl: row.externalUrl,
@@ -297,9 +333,11 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     Body: {
       type: 'discord' | 'custom';
       url?: string;
-      format?: 'json' | 'ntfy' | 'apprise';
+      format?: WebhookFormat;
       ntfyTopic?: string;
       ntfyAuthToken?: string;
+      pushoverUserKey?: string;
+      pushoverApiToken?: string;
     };
   }>('/test-webhook', { preHandler: [app.authenticate] }, async (request, reply) => {
     const authUser = request.user;
@@ -309,7 +347,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       return reply.forbidden('Only server owners can test webhooks');
     }
 
-    const { type, url, format, ntfyTopic, ntfyAuthToken } = request.body;
+    const { type, url, format } = request.body;
 
     if (!type) {
       return reply.badRequest('Missing webhook type');
@@ -325,24 +363,64 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     const currentSettings = settingsRow[0];
 
     let webhookUrl: string | null = null;
-    let webhookFormat: 'json' | 'ntfy' | 'apprise' = 'json';
-    let topic: string | null = null;
-    let authToken: string | null = null;
+    let webhookFormat: WebhookFormat = 'json';
+    let ntfyTopic: string | null = null;
+    let ntfyAuthToken: string | null = null;
+    let pushoverUserKey: string | null = null;
+    let pushoverApiToken: string | null = null;
 
     if (type === 'discord') {
       webhookUrl = url ?? currentSettings?.discordWebhookUrl ?? null;
     } else {
       webhookUrl = url ?? currentSettings?.customWebhookUrl ?? null;
       webhookFormat = format ?? currentSettings?.webhookFormat ?? 'json';
-      topic = ntfyTopic ?? currentSettings?.ntfyTopic ?? null;
-      authToken = ntfyAuthToken ?? currentSettings?.ntfyAuthToken ?? null;
+      ntfyTopic = currentSettings?.ntfyTopic ?? null;
+      ntfyAuthToken = currentSettings?.ntfyAuthToken ?? null;
+      pushoverUserKey = currentSettings?.pushoverUserKey ?? null;
+      pushoverApiToken = currentSettings?.pushoverApiToken ?? null;
     }
 
-    if (!webhookUrl) {
+    if (webhookFormat === 'pushover') {
+      if (!pushoverUserKey || !pushoverApiToken) {
+        return reply.badRequest('Pushover requires User Key and API Token');
+      }
+    } else if (!webhookUrl) {
       return reply.badRequest(`No ${type} webhook URL configured`);
     }
 
-    const result = await sendTestWebhook(webhookUrl, type, webhookFormat, topic, authToken);
+    // Build notification settings for testing
+    const testSettings = {
+      discordWebhookUrl: type === 'discord' ? webhookUrl : null,
+      customWebhookUrl: type === 'custom' ? webhookUrl : null,
+      webhookFormat,
+      ntfyTopic,
+      ntfyAuthToken,
+      pushoverUserKey,
+      pushoverApiToken,
+    };
+
+    // Determine which agent to test based on type and format
+    let agentName: string;
+    if (type === 'discord') {
+      agentName = 'discord';
+    } else {
+      // Custom webhook - determine agent based on format
+      switch (webhookFormat) {
+        case 'ntfy':
+          agentName = 'ntfy';
+          break;
+        case 'apprise':
+          agentName = 'apprise';
+          break;
+        case 'pushover':
+          agentName = 'pushover';
+          break;
+        default:
+          agentName = 'json-webhook';
+      }
+    }
+
+    const result = await notificationManager.testAgent(agentName, testSettings);
 
     if (!result.success) {
       return reply.code(502).send({
@@ -378,6 +456,34 @@ export async function getPollerSettings(): Promise<{ enabled: boolean; intervalM
     enabled: settingsRow.pollerEnabled,
     intervalMs: settingsRow.pollerIntervalMs,
   };
+}
+
+/**
+ * Get GeoIP settings from database (for internal use by poller/SSE processor)
+ */
+export async function getGeoIPSettings(): Promise<{ usePlexGeoip: boolean }> {
+  try {
+    const row = await db
+      .select({
+        usePlexGeoip: settings.usePlexGeoip,
+      })
+      .from(settings)
+      .where(eq(settings.id, SETTINGS_ID))
+      .limit(1);
+
+    const settingsRow = row[0];
+    if (!settingsRow) {
+      // Return defaults if settings don't exist yet
+      return { usePlexGeoip: false };
+    }
+
+    return {
+      usePlexGeoip: settingsRow.usePlexGeoip,
+    };
+  } catch {
+    // Column doesn't exist yet (before migration) - use default
+    return { usePlexGeoip: false };
+  }
 }
 
 /**
@@ -417,9 +523,11 @@ export async function getNetworkSettings(): Promise<{
 export interface NotificationSettings {
   discordWebhookUrl: string | null;
   customWebhookUrl: string | null;
-  webhookFormat: 'json' | 'ntfy' | 'apprise' | null;
+  webhookFormat: WebhookFormat | null;
   ntfyTopic: string | null;
   ntfyAuthToken: string | null;
+  pushoverUserKey: string | null;
+  pushoverApiToken: string | null;
   webhookSecret: string | null;
   mobileEnabled: boolean;
   unitSystem: 'metric' | 'imperial';
@@ -436,6 +544,8 @@ export async function getNotificationSettings(): Promise<NotificationSettings> {
       webhookFormat: settings.webhookFormat,
       ntfyTopic: settings.ntfyTopic,
       ntfyAuthToken: settings.ntfyAuthToken,
+      pushoverUserKey: settings.pushoverUserKey,
+      pushoverApiToken: settings.pushoverApiToken,
       mobileEnabled: settings.mobileEnabled,
       unitSystem: settings.unitSystem,
     })
@@ -452,6 +562,8 @@ export async function getNotificationSettings(): Promise<NotificationSettings> {
       webhookFormat: null,
       ntfyTopic: null,
       ntfyAuthToken: null,
+      pushoverUserKey: null,
+      pushoverApiToken: null,
       webhookSecret: null,
       mobileEnabled: false,
       unitSystem: 'metric',
@@ -464,6 +576,8 @@ export async function getNotificationSettings(): Promise<NotificationSettings> {
     webhookFormat: settingsRow.webhookFormat,
     ntfyTopic: settingsRow.ntfyTopic,
     ntfyAuthToken: settingsRow.ntfyAuthToken,
+    pushoverUserKey: settingsRow.pushoverUserKey,
+    pushoverApiToken: settingsRow.pushoverApiToken,
     webhookSecret: null, // TODO: Add webhookSecret column to settings table in Phase 4
     mobileEnabled: settingsRow.mobileEnabled,
     unitSystem: settingsRow.unitSystem,

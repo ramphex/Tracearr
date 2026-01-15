@@ -24,6 +24,13 @@ export type {
   Session,
   SessionWithDetails,
   ActiveSession,
+  SourceVideoDetails,
+  SourceAudioDetails,
+  StreamVideoDetails,
+  StreamAudioDetails,
+  TranscodeInfo,
+  SubtitleInfo,
+  StreamDetailFields,
   // Rule
   RuleType,
   ImpossibleTravelParams,
@@ -132,6 +139,23 @@ export type {
   EngagementTierBreakdown,
   EngagementStats,
   ShowStatsResponse,
+  // Device compatibility
+  DeviceCompatibilityRow,
+  DeviceCompatibilityResponse,
+  DeviceCompatibilityMatrix,
+  DeviceHealthRow,
+  DeviceHealthResponse,
+  TranscodeHotspotRow,
+  TranscodeHotspotsResponse,
+  // Top transcoding users
+  TopTranscodingUserRow,
+  TopTranscodingUsersResponse,
+  // Bandwidth stats
+  DailyBandwidthRow,
+  DailyBandwidthResponse,
+  BandwidthTopUser,
+  BandwidthTopUsersResponse,
+  BandwidthSummary,
 } from './types.js';
 
 // Schema exports
@@ -152,6 +176,7 @@ export {
   // Session
   sessionQuerySchema,
   historyQuerySchema,
+  historyAggregatesQuerySchema,
   sessionIdParamSchema,
   terminateSessionBodySchema,
   // Rule
@@ -165,6 +190,7 @@ export {
   updateRuleSchema,
   ruleIdParamSchema,
   // Violation
+  violationSortFieldSchema,
   violationQuerySchema,
   violationIdParamSchema,
   // Stats
@@ -200,9 +226,11 @@ export type {
   UpdateUserIdentityInput,
   SessionQueryInput,
   HistoryQueryInput,
+  HistoryAggregatesQueryInput,
   CreateRuleInput,
   UpdateRuleInput,
   ViolationQueryInput,
+  ViolationSortField,
   ServerIdFilterInput,
   DashboardQueryInput,
   StatsQueryInput,
@@ -262,3 +290,6 @@ export {
 
 // Role helper exports
 export { ROLE_PERMISSIONS, canLogin, hasMinRole, isOwner, isActive } from './types.js';
+
+// Session constants
+export { MEDIA_TYPES, DEFAULT_STREAM_DETAILS } from './types.js';

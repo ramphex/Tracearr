@@ -13,6 +13,16 @@ export {
   useConcurrentStats,
   useEngagementStats,
   useShowStats,
+  // Device compatibility
+  useDeviceCompatibility,
+  useDeviceCompatibilityMatrix,
+  useDeviceHealth,
+  useTranscodeHotspots,
+  useTopTranscodingUsers,
+  // Bandwidth stats
+  useBandwidthDaily,
+  useBandwidthTopUsers,
+  useBandwidthSummary,
   type LocationStatsFilters,
   type StatsTimeRange,
   type EngagementStatsOptions,
@@ -24,7 +34,13 @@ export { useSessions, useActiveSessions, useSession } from './useSessions';
 export { useTerminateSession } from './useTerminateSession';
 
 // History hooks (advanced session queries with infinite scroll)
-export { useHistorySessions, useFilterOptions, type HistoryFilters } from './useHistory';
+export {
+  useHistorySessions,
+  useHistoryAggregates,
+  useFilterOptions,
+  type HistoryFilters,
+  type AggregateFilters,
+} from './useHistory';
 
 // User hooks
 export {
@@ -46,7 +62,15 @@ export { useRules, useCreateRule, useUpdateRule, useDeleteRule, useToggleRule } 
 export { useViolations, useAcknowledgeViolation, useDismissViolation } from './useViolations';
 
 // Server hooks
-export { useServers, useCreateServer, useDeleteServer, useSyncServer } from './useServers';
+export {
+  useServers,
+  useCreateServer,
+  useDeleteServer,
+  useSyncServer,
+  useUpdateServerUrl,
+  useServerStatistics,
+  usePlexServerConnections,
+} from './useServers';
 
 // Settings hooks
 export { useSettings, useUpdateSettings } from './useSettings';

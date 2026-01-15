@@ -10,10 +10,14 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Film,
   Tv,
   Music,
+  Radio,
+  Image,
+  CircleHelp,
   Play,
   Pause,
   Square,
@@ -31,6 +35,8 @@ import {
 import { cn, getCountryName } from '@/lib/utils';
 import { getAvatarUrl } from '@/components/users/utils';
 import { useTheme } from '@/components/theme-provider';
+import { StreamDetailsPanel } from './StreamDetailsPanel';
+
 import type {
   SessionWithDetails,
   ActiveSession,
@@ -67,6 +73,9 @@ const MEDIA_CONFIG: Record<MediaType, { icon: typeof Film; label: string }> = {
   movie: { icon: Film, label: 'Movie' },
   episode: { icon: Tv, label: 'Episode' },
   track: { icon: Music, label: 'Track' },
+  live: { icon: Radio, label: 'Live TV' },
+  photo: { icon: Image, label: 'Photo' },
+  unknown: { icon: CircleHelp, label: 'Unknown' },
 };
 
 // Map tile URLs
@@ -88,6 +97,14 @@ function formatDuration(ms: number | null): string {
   return `${seconds}s`;
 }
 
+// Format transcode reason codes into human-friendly labels
+function formatReason(reason: string): string {
+  return reason
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .trim();
+}
+
 // Get watch time - for active sessions (durationMs is null), calculate from elapsed time
 function getWatchTime(session: SessionWithDetails | ActiveSession): number | null {
   // If we have a recorded duration, use it
@@ -104,13 +121,6 @@ function getWatchTime(session: SessionWithDetails | ActiveSession): number | nul
   return Math.max(0, elapsedMs - pausedMs);
 }
 
-// Format bitrate
-function formatBitrate(bitrate: number | null): string {
-  if (!bitrate) return '—';
-  if (bitrate >= 1000) return `${(bitrate / 1000).toFixed(1)} Mbps`;
-  return `${bitrate} Kbps`;
-}
-
 // Get progress percentage
 function getProgress(session: SessionWithDetails): number {
   if (!session.totalDurationMs || session.totalDurationMs === 0) return 0;
@@ -119,15 +129,28 @@ function getProgress(session: SessionWithDetails): number {
 }
 
 // Get media title formatted
-function getMediaTitle(session: SessionWithDetails): { primary: string; secondary?: string } {
+function getMediaTitle(session: SessionWithDetails | ActiveSession): {
+  primary: string;
+  secondary?: string;
+} {
   if (session.mediaType === 'episode' && session.grandparentTitle) {
     const epNum =
       session.seasonNumber && session.episodeNumber
-        ? `S${session.seasonNumber.toString().padStart(2, '0')}E${session.episodeNumber.toString().padStart(2, '0')}`
+        ? `S${session.seasonNumber.toString().padStart(2, '0')} E${session.episodeNumber.toString().padStart(2, '0')}`
         : '';
     return {
       primary: session.grandparentTitle,
       secondary: `${epNum}${epNum ? ' · ' : ''}${session.mediaTitle}`,
+    };
+  }
+  if (session.mediaType === 'track') {
+    // Music track - show track name, artist/album as secondary
+    const parts: string[] = [];
+    if (session.artistName) parts.push(session.artistName);
+    if (session.albumName) parts.push(session.albumName);
+    return {
+      primary: session.mediaTitle,
+      secondary: parts.length > 0 ? parts.join(' · ') : undefined,
     };
   }
   return {
@@ -226,6 +249,9 @@ export function SessionDetailSheet({ session, open, onOpenChange }: Props) {
     getCountryName(session.geoCountry),
   ].filter(Boolean);
   const locationString = locationParts.join(', ');
+  const transcodeReasons = session.transcodeInfo?.reasons ?? [];
+  const hasTranscodeReason = transcodeReasons.length > 0;
+  const transcodeReasonText = transcodeReasons.map(formatReason).join(', ');
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -426,20 +452,36 @@ export function SessionDetailSheet({ session, open, onOpenChange }: Props) {
             </div>
           </Section>
 
-          {/* Quality */}
+          {/* Stream Details */}
           <Section
             icon={Gauge}
-            title="Quality"
+            title="Stream Details"
             badge={
               <Badge
                 variant={session.isTranscode ? 'warning' : 'secondary'}
                 className="gap-1 text-xs"
               >
                 {session.isTranscode ? (
-                  <>
-                    <Repeat2 className="h-3 w-3" />
-                    Transcode
-                  </>
+                  hasTranscodeReason ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex items-center gap-1">
+                            <Repeat2 className="h-3 w-3" />
+                            Transcode
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-left">
+                          <span className="text-[11px]">{transcodeReasonText}</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <>
+                      <Repeat2 className="h-3 w-3" />
+                      Transcode
+                    </>
+                  )
                 ) : session.videoDecision === 'copy' || session.audioDecision === 'copy' ? (
                   <>
                     <MonitorPlay className="h-3 w-3" />
@@ -454,44 +496,24 @@ export function SessionDetailSheet({ session, open, onOpenChange }: Props) {
               </Badge>
             }
           >
-            <div className="space-y-1.5 text-sm">
-              {session.quality && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Quality</span>
-                  <span>{session.quality}</span>
-                </div>
-              )}
-              {session.videoDecision && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Video</span>
-                  <span className="capitalize">
-                    {session.videoDecision === 'directplay'
-                      ? 'Direct Play'
-                      : session.videoDecision === 'copy'
-                        ? 'Direct Stream'
-                        : 'Transcode'}
-                  </span>
-                </div>
-              )}
-              {session.audioDecision && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Audio</span>
-                  <span className="capitalize">
-                    {session.audioDecision === 'directplay'
-                      ? 'Direct Play'
-                      : session.audioDecision === 'copy'
-                        ? 'Direct Stream'
-                        : 'Transcode'}
-                  </span>
-                </div>
-              )}
-              {session.bitrate && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Bitrate</span>
-                  <span>{formatBitrate(session.bitrate)}</span>
-                </div>
-              )}
-            </div>
+            <StreamDetailsPanel
+              sourceVideoCodec={session.sourceVideoCodec ?? null}
+              sourceAudioCodec={session.sourceAudioCodec ?? null}
+              sourceAudioChannels={session.sourceAudioChannels ?? null}
+              sourceVideoWidth={session.sourceVideoWidth ?? null}
+              sourceVideoHeight={session.sourceVideoHeight ?? null}
+              streamVideoCodec={session.streamVideoCodec ?? null}
+              streamAudioCodec={session.streamAudioCodec ?? null}
+              sourceVideoDetails={session.sourceVideoDetails ?? null}
+              sourceAudioDetails={session.sourceAudioDetails ?? null}
+              streamVideoDetails={session.streamVideoDetails ?? null}
+              streamAudioDetails={session.streamAudioDetails ?? null}
+              transcodeInfo={session.transcodeInfo ?? null}
+              subtitleInfo={session.subtitleInfo ?? null}
+              videoDecision={session.videoDecision ?? null}
+              audioDecision={session.audioDecision ?? null}
+              bitrate={session.bitrate ?? null}
+            />
           </Section>
         </div>
       </SheetContent>

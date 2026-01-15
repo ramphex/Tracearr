@@ -443,7 +443,8 @@ describe('parseJellystatBackup', () => {
     const json = JSON.stringify(VALID_BACKUP_MULTIPLE);
     const activities = parseJellystatBackup(json);
     expect(activities).toHaveLength(3);
-    expect(activities[0]?.Id).toBe(MOVIE_ACTIVITY.Id);
+    // parseJellystatBackup returns unknown[] for deferred validation
+    expect((activities[0] as Record<string, unknown>)?.Id).toBe(MOVIE_ACTIVITY.Id);
   });
 
   it('should return empty array for empty backup', () => {
@@ -624,10 +625,32 @@ describe('transformActivityToSession', () => {
       expect(session.quality).toBeNull(); // Quality not available from Jellystat
     });
 
-    it('should treat DirectStream as copy, not transcode', () => {
-      // DirectStream = container remux, no codec transcoding
-      // videoDecision: copy, audioDecision: copy, isTranscode: false
+    it('should treat DirectStream without TranscodingInfo as DirectPlay', () => {
+      // Jellystat exports "DirectStream" for what Emby shows as "DirectPlay"
+      // When TranscodingInfo is absent, treat as DirectPlay
       const session = transformActivityToSession(MINIMAL_ACTIVITY, serverId, serverUserId, mockGeo);
+
+      expect(session.isTranscode).toBe(false);
+      expect(session.videoDecision).toBe('directplay');
+      expect(session.audioDecision).toBe('directplay');
+    });
+
+    it('should treat DirectStream with non-direct stream as copy', () => {
+      // Real DirectStream (container remux) has TranscodingInfo with IsVideoDirect/IsAudioDirect = false
+      const activityWithRealDirectStream = {
+        ...MINIMAL_ACTIVITY,
+        Id: '1003-ds',
+        TranscodingInfo: {
+          IsVideoDirect: false,
+          IsAudioDirect: true,
+        },
+      };
+      const session = transformActivityToSession(
+        activityWithRealDirectStream,
+        serverId,
+        serverUserId,
+        mockGeo
+      );
 
       expect(session.isTranscode).toBe(false);
       expect(session.videoDecision).toBe('copy');

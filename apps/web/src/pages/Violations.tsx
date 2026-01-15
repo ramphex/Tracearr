@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DataTable } from '@/components/ui/data-table';
+import { DataTable, type SortingState } from '@/components/ui/data-table';
 import { Button } from '@/components/ui/button';
 import { SeverityBadge } from '@/components/violations/SeverityBadge';
 import { ViolationDetailDialog } from '@/components/violations/ViolationDetailDialog';
@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
-import type { ViolationWithDetails, ViolationSeverity } from '@tracearr/shared';
+import type { ViolationWithDetails, ViolationSeverity, ViolationSortField } from '@tracearr/shared';
 import { useViolations, useAcknowledgeViolation, useDismissViolation } from '@/hooks/queries';
 import { useServer } from '@/hooks/useServer';
 
@@ -48,8 +48,17 @@ const ruleIcons: Record<string, React.ReactNode> = {
   geo_restriction: <Globe className="h-4 w-4" />,
 };
 
+// Map DataTable column IDs to API sort field names
+const columnToSortField: Record<string, ViolationSortField> = {
+  createdAt: 'createdAt',
+  severity: 'severity',
+  user: 'user',
+  rule: 'rule',
+};
+
 export function Violations() {
   const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'createdAt', desc: true }]);
   const [severityFilter, setSeverityFilter] = useState<ViolationSeverity | 'all'>('all');
   const [acknowledgedFilter, setAcknowledgedFilter] = useState<'all' | 'pending' | 'acknowledged'>(
     'all'
@@ -59,12 +68,18 @@ export function Violations() {
   const pageSize = 10;
   const { selectedServerId } = useServer();
 
+  // Convert sorting state to API params
+  const orderBy = sorting[0]?.id ? columnToSortField[sorting[0].id] : undefined;
+  const orderDir = sorting[0] ? (sorting[0].desc ? 'desc' : 'asc') : undefined;
+
   const { data: violationsData, isLoading } = useViolations({
     page,
     pageSize,
     severity: severityFilter === 'all' ? undefined : severityFilter,
     acknowledged: acknowledgedFilter === 'all' ? undefined : acknowledgedFilter === 'acknowledged',
     serverId: selectedServerId ?? undefined,
+    orderBy,
+    orderDir,
   });
   const acknowledgeViolation = useAcknowledgeViolation();
   const dismissViolation = useDismissViolation();
@@ -88,6 +103,11 @@ export function Violations() {
       });
     }
   };
+
+  const handleSortingChange = useCallback((newSorting: SortingState) => {
+    setSorting(newSorting);
+    setPage(1);
+  }, []);
 
   const violationColumns: ColumnDef<ViolationWithDetails>[] = [
     {
@@ -312,6 +332,9 @@ export function Violations() {
               pageCount={totalPages}
               page={page}
               onPageChange={setPage}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
+              isServerFiltered
               onRowClick={(violation) => {
                 setSelectedViolation(violation);
               }}

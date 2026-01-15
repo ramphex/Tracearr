@@ -6,9 +6,10 @@
  */
 
 import { eq, and, desc, isNull, gte } from 'drizzle-orm';
-import { TIME_MS, type ActiveSession } from '@tracearr/shared';
+import { TIME_MS, type ActiveSession, type StreamDetailFields } from '@tracearr/shared';
+import { pickStreamDetailFields } from './sessionMapper.js';
 import { db } from '../../db/client.js';
-import { sessions } from '../../db/schema.js';
+import { serverUsers, sessions } from '../../db/schema.js';
 import type { GeoLocation } from '../../services/geoip.js';
 import { ruleEngine } from '../../services/rules.js';
 import {
@@ -78,11 +79,11 @@ export interface BuildActiveSessionInput {
     externalSessionId?: string | null;
   };
 
-  /** Processed session data from media server */
-  processed: {
+  /** Processed session data from media server (extends StreamDetailFields for DRY) */
+  processed: StreamDetailFields & {
     sessionKey: string;
     state: 'playing' | 'paused';
-    mediaType: 'movie' | 'episode' | 'track';
+    mediaType: 'movie' | 'episode' | 'track' | 'live' | 'photo' | 'unknown';
     mediaTitle: string;
     grandparentTitle: string;
     seasonNumber: number;
@@ -103,6 +104,15 @@ export interface BuildActiveSessionInput {
     videoDecision: string;
     audioDecision: string;
     bitrate: number;
+    // Live TV specific fields
+    channelTitle: string | null;
+    channelIdentifier: string | null;
+    channelThumb: string | null;
+    // Music track metadata
+    artistName: string | null;
+    albumName: string | null;
+    trackNumber: number | null;
+    discNumber: number | null;
   };
 
   /** Server user info */
@@ -203,6 +213,19 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
     videoDecision: processed.videoDecision,
     audioDecision: processed.audioDecision,
     bitrate: processed.bitrate,
+
+    // Stream details (source media, stream output, transcode/subtitle info)
+    ...pickStreamDetailFields(processed),
+
+    // Live TV specific fields
+    channelTitle: processed.channelTitle,
+    channelIdentifier: processed.channelIdentifier,
+    channelThumb: processed.channelThumb,
+    // Music track metadata
+    artistName: processed.artistName,
+    albumName: processed.albumName,
+    trackNumber: processed.trackNumber,
+    discNumber: processed.discNumber,
 
     // Relationships
     user,
@@ -413,6 +436,17 @@ export async function createSessionWithRulesAtomic(
             videoDecision: processed.videoDecision,
             audioDecision: processed.audioDecision,
             bitrate: processed.bitrate,
+            // Stream details (source media, stream output, transcode/subtitle info)
+            ...pickStreamDetailFields(processed),
+            // Live TV specific fields
+            channelTitle: processed.channelTitle,
+            channelIdentifier: processed.channelIdentifier,
+            channelThumb: processed.channelThumb,
+            // Music track metadata
+            artistName: processed.artistName,
+            albumName: processed.albumName,
+            trackNumber: processed.trackNumber,
+            discNumber: processed.discNumber,
           })
           .returning();
 
@@ -420,6 +454,13 @@ export async function createSessionWithRulesAtomic(
         if (!inserted) {
           throw new Error('Failed to insert session');
         }
+
+        await tx
+          .update(serverUsers)
+          .set({
+            lastActivityAt: sql`GREATEST(COALESCE(${serverUsers.lastActivityAt}, ${inserted.startedAt}), ${inserted.startedAt})`,
+          })
+          .where(eq(serverUsers.id, serverUser.id));
 
         // Build session object for rule evaluation
         const session = {
@@ -462,6 +503,17 @@ export async function createSessionWithRulesAtomic(
           videoDecision: processed.videoDecision,
           audioDecision: processed.audioDecision,
           bitrate: processed.bitrate,
+          // Stream details (source media, stream output, transcode/subtitle info)
+          ...pickStreamDetailFields(processed),
+          // Live TV specific fields
+          channelTitle: processed.channelTitle,
+          channelIdentifier: processed.channelIdentifier,
+          channelThumb: processed.channelThumb,
+          // Music track metadata
+          artistName: processed.artistName,
+          albumName: processed.albumName,
+          trackNumber: processed.trackNumber,
+          discNumber: processed.discNumber,
         };
 
         // Evaluate rules

@@ -1,7 +1,7 @@
 /**
- * Notification service tests
+ * Notification agent system tests
  *
- * Tests the notification dispatch functionality:
+ * Tests the notification agent dispatch functionality:
  * - Discord webhook notifications
  * - Custom webhook notifications with different formats
  * - Ntfy authentication header handling
@@ -9,18 +9,19 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NotificationService, sendTestWebhook } from '../notify.js';
-import type { ViolationWithDetails, ActiveSession, Settings } from '@tracearr/shared';
+import { NotificationManager } from '../notifications/index.js';
+import type { ViolationWithDetails, Settings } from '@tracearr/shared';
+import { createMockActiveSession } from '../../test/fixtures.js';
 
 // Mock global fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-describe('NotificationService', () => {
-  let notificationService: NotificationService;
+describe('NotificationManager', () => {
+  let manager: NotificationManager;
 
   beforeEach(() => {
-    notificationService = new NotificationService();
+    manager = new NotificationManager();
     mockFetch.mockReset();
   });
 
@@ -36,6 +37,8 @@ describe('NotificationService', () => {
     webhookFormat: null,
     ntfyTopic: null,
     ntfyAuthToken: null,
+    pushoverUserKey: null,
+    pushoverApiToken: null,
     pollerEnabled: true,
     pollerIntervalMs: 15000,
     tautulliUrl: null,
@@ -45,6 +48,7 @@ describe('NotificationService', () => {
     trustProxy: false,
     mobileEnabled: false,
     primaryAuthMethod: 'local',
+    usePlexGeoip: false,
     ...overrides,
   });
 
@@ -71,59 +75,6 @@ describe('NotificationService', () => {
     },
   });
 
-  const createMockSession = (): ActiveSession => ({
-    id: 'session-123',
-    serverId: 'server-456',
-    serverUserId: 'user-789',
-    sessionKey: 'key-123',
-    state: 'playing',
-    mediaTitle: 'Test Movie',
-    mediaType: 'movie',
-    grandparentTitle: null,
-    seasonNumber: null,
-    episodeNumber: null,
-    year: 2024,
-    thumbPath: null,
-    ratingKey: 'rating-123',
-    externalSessionId: null,
-    startedAt: new Date(),
-    stoppedAt: null,
-    durationMs: 3600000,
-    totalDurationMs: 7200000,
-    progressMs: 3600000,
-    lastPausedAt: null,
-    pausedDurationMs: 0,
-    referenceId: null,
-    watched: false,
-    ipAddress: '192.168.1.1',
-    geoCity: 'New York',
-    geoRegion: 'NY',
-    geoCountry: 'US',
-    geoLat: 40.7128,
-    geoLon: -74.006,
-    playerName: 'Test Device',
-    deviceId: 'device-123',
-    product: 'Test Client',
-    device: 'Desktop',
-    platform: 'Windows',
-    quality: '1080p',
-    isTranscode: false,
-    bitrate: 10000,
-    videoDecision: 'directplay',
-    audioDecision: 'directplay',
-    user: {
-      id: 'user-789',
-      username: 'testuser',
-      thumbUrl: null,
-      identityName: 'Test User',
-    },
-    server: {
-      id: 'server-456',
-      name: 'Test Server',
-      type: 'plex',
-    },
-  });
-
   describe('notifyViolation', () => {
     it('sends discord webhook for violations', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true });
@@ -132,7 +83,7 @@ describe('NotificationService', () => {
         discordWebhookUrl: 'https://discord.com/api/webhooks/123/abc',
       });
 
-      await notificationService.notifyViolation(createMockViolation(), settings);
+      await manager.notifyViolation(createMockViolation(), settings);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -154,7 +105,7 @@ describe('NotificationService', () => {
         ntfyAuthToken: 'tk_secret_token_123',
       });
 
-      await notificationService.notifyViolation(createMockViolation(), settings);
+      await manager.notifyViolation(createMockViolation(), settings);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -187,7 +138,7 @@ describe('NotificationService', () => {
         ntfyAuthToken: null,
       });
 
-      await notificationService.notifyViolation(createMockViolation(), settings);
+      await manager.notifyViolation(createMockViolation(), settings);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -213,7 +164,7 @@ describe('NotificationService', () => {
         webhookFormat: 'apprise',
       });
 
-      await notificationService.notifyViolation(createMockViolation(), settings);
+      await manager.notifyViolation(createMockViolation(), settings);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
@@ -225,6 +176,30 @@ describe('NotificationService', () => {
       expect(body.type).toBe('warning');
     });
 
+    it('sends custom webhook with pushover format', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      const settings = createMockSettings({
+        webhookFormat: 'pushover',
+        pushoverUserKey: 'pushover-user-key',
+        pushoverApiToken: 'pushover-api-token',
+      });
+
+      await manager.notifyViolation(createMockViolation(), settings);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Verify pushover POST body
+      const callArgs = mockFetch.mock.calls[0]!;
+      expect(callArgs[0]).toBe('https://api.pushover.net/1/messages.json');
+      const body = new URLSearchParams(callArgs[1].body);
+      expect(body.get('user')).toBe('pushover-user-key');
+      expect(body.get('token')).toBe('pushover-api-token');
+      expect(body.get('title')).toBe('Violation Detected');
+      expect(body.get('message')).toContain('Test User');
+      expect(body.get('priority')).toBe('0');
+    });
+
     it('sends custom webhook with json format', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true });
 
@@ -233,7 +208,7 @@ describe('NotificationService', () => {
         webhookFormat: 'json',
       });
 
-      await notificationService.notifyViolation(createMockViolation(), settings);
+      await manager.notifyViolation(createMockViolation(), settings);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
@@ -254,7 +229,7 @@ describe('NotificationService', () => {
         webhookFormat: 'json',
       });
 
-      await notificationService.notifyViolation(createMockViolation(), settings);
+      await manager.notifyViolation(createMockViolation(), settings);
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
@@ -271,7 +246,7 @@ describe('NotificationService', () => {
         ntfyAuthToken: 'tk_server_token',
       });
 
-      await notificationService.notifyServerDown('Plex Server', settings);
+      await manager.notifyServerDown('Plex Server', settings);
 
       expect(mockFetch).toHaveBeenCalledWith(
         'https://ntfy.example.com',
@@ -286,9 +261,38 @@ describe('NotificationService', () => {
       const callArgs = mockFetch.mock.calls[0]!;
       const body = JSON.parse(callArgs[1].body);
       expect(body.topic).toBe('server-alerts');
-      expect(body.title).toBe('Server Down');
+      expect(body.title).toBe('Server Offline');
       expect(body.message).toContain('Plex Server');
       expect(body.priority).toBe(5); // High priority for server down
+    });
+
+    it('sends pushover notification for server down', async () => {
+      mockFetch.mockResolvedValue({ ok: true });
+
+      const settings = createMockSettings({
+        webhookFormat: 'pushover',
+        pushoverUserKey: 'pushover-user-key',
+        pushoverApiToken: 'pushover-api-token',
+      });
+
+      await manager.notifyServerDown('Plex Server', settings);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.pushover.net/1/messages.json',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        })
+      );
+
+      // Verify pushover POST body
+      const callArgs = mockFetch.mock.calls[0]!;
+      const body = new URLSearchParams(callArgs[1].body);
+      expect(body.get('user')).toBe('pushover-user-key');
+      expect(body.get('token')).toBe('pushover-api-token');
+      expect(body.get('title')).toBe('Server Offline');
+      expect(body.get('message')).toContain('Plex Server');
+      expect(body.get('priority')).toBe('1'); // High priority for server down
     });
   });
 
@@ -303,7 +307,7 @@ describe('NotificationService', () => {
         ntfyAuthToken: 'tk_server_token',
       });
 
-      await notificationService.notifyServerUp('Plex Server', settings);
+      await manager.notifyServerUp('Plex Server', settings);
 
       expect(mockFetch).toHaveBeenCalledWith(
         'https://ntfy.example.com',
@@ -320,6 +324,35 @@ describe('NotificationService', () => {
       expect(body.title).toBe('Server Online');
       expect(body.message).toContain('Plex Server');
     });
+
+    it('sends pushover notification for server up', async () => {
+      mockFetch.mockResolvedValue({ ok: true });
+
+      const settings = createMockSettings({
+        webhookFormat: 'pushover',
+        pushoverUserKey: 'pushover-user-key',
+        pushoverApiToken: 'pushover-api-token',
+      });
+
+      await manager.notifyServerUp('Plex Server', settings);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.pushover.net/1/messages.json',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        })
+      );
+
+      // Verify pushover POST body
+      const callArgs = mockFetch.mock.calls[0]!;
+      const body = new URLSearchParams(callArgs[1].body);
+      expect(body.get('user')).toBe('pushover-user-key');
+      expect(body.get('token')).toBe('pushover-api-token');
+      expect(body.get('title')).toBe('Server Online');
+      expect(body.get('message')).toContain('Plex Server');
+      expect(body.get('priority')).toBe('1');
+    });
   });
 
   describe('notifySessionStarted', () => {
@@ -333,7 +366,15 @@ describe('NotificationService', () => {
         ntfyAuthToken: 'tk_session_token',
       });
 
-      await notificationService.notifySessionStarted(createMockSession(), settings);
+      const session = createMockActiveSession({
+        user: {
+          id: 'user-789',
+          username: 'testuser',
+          thumbUrl: null,
+          identityName: 'Test User',
+        },
+      });
+      await manager.notifySessionStarted(session, settings);
 
       expect(mockFetch).toHaveBeenCalledWith(
         'https://ntfy.example.com',
@@ -348,14 +389,57 @@ describe('NotificationService', () => {
       const callArgs = mockFetch.mock.calls[0]!;
       const body = JSON.parse(callArgs[1].body);
       expect(body.title).toBe('Stream Started');
-      expect(body.message).toContain('Test User'); // Uses identityName when available
+      expect(body.message).toContain('Test User');
       expect(body.message).toContain('Test Movie');
+    });
+
+    it('sends pushover notification for session start', async () => {
+      mockFetch.mockResolvedValue({ ok: true });
+
+      const settings = createMockSettings({
+        webhookFormat: 'pushover',
+        pushoverUserKey: 'pushover-user-key',
+        pushoverApiToken: 'pushover-api-token',
+      });
+
+      await manager.notifySessionStarted(
+        createMockActiveSession({
+          user: {
+            id: 'user-012',
+            username: 'testuser',
+            thumbUrl: null,
+            identityName: 'Test User',
+          },
+        }),
+        settings
+      );
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.pushover.net/1/messages.json',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        })
+      );
+
+      // Verify pushover POST body
+      const callArgs = mockFetch.mock.calls[0]!;
+      const body = new URLSearchParams(callArgs[1].body);
+      expect(body.get('user')).toBe('pushover-user-key');
+      expect(body.get('token')).toBe('pushover-api-token');
+      expect(body.get('title')).toBe('Stream Started');
+      expect(body.get('message')).toContain('Test User');
+      expect(body.get('message')).toContain('Test Movie');
+      expect(body.get('priority')).toBe('-1');
     });
   });
 });
 
-describe('sendTestWebhook', () => {
+describe('testAgent', () => {
+  let manager: NotificationManager;
+
   beforeEach(() => {
+    manager = new NotificationManager();
     mockFetch.mockReset();
   });
 
@@ -366,7 +450,15 @@ describe('sendTestWebhook', () => {
   it('sends discord test webhook', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
-    const result = await sendTestWebhook('https://discord.com/api/webhooks/123/abc', 'discord');
+    const result = await manager.testAgent('discord', {
+      discordWebhookUrl: 'https://discord.com/api/webhooks/123/abc',
+      customWebhookUrl: null,
+      webhookFormat: null,
+      ntfyTopic: null,
+      ntfyAuthToken: null,
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
 
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledWith(
@@ -386,13 +478,15 @@ describe('sendTestWebhook', () => {
   it('sends ntfy test webhook with auth token', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
-    const result = await sendTestWebhook(
-      'https://ntfy.example.com',
-      'custom',
-      'ntfy',
-      'tracearr-test',
-      'tk_test_token_123'
-    );
+    const result = await manager.testAgent('ntfy', {
+      discordWebhookUrl: null,
+      customWebhookUrl: 'https://ntfy.example.com',
+      webhookFormat: 'ntfy',
+      ntfyTopic: 'tracearr-test',
+      ntfyAuthToken: 'tk_test_token_123',
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
 
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledWith(
@@ -416,13 +510,15 @@ describe('sendTestWebhook', () => {
   it('sends ntfy test webhook without auth token', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
-    const result = await sendTestWebhook(
-      'https://ntfy.example.com',
-      'custom',
-      'ntfy',
-      'tracearr-test',
-      null
-    );
+    const result = await manager.testAgent('ntfy', {
+      discordWebhookUrl: null,
+      customWebhookUrl: 'https://ntfy.example.com',
+      webhookFormat: 'ntfy',
+      ntfyTopic: 'tracearr-test',
+      ntfyAuthToken: null,
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
 
     expect(result.success).toBe(true);
     expect(mockFetch).toHaveBeenCalledWith(
@@ -443,28 +539,43 @@ describe('sendTestWebhook', () => {
   it('sends apprise test webhook', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
-    const result = await sendTestWebhook('https://apprise.example.com/notify', 'custom', 'apprise');
+    const result = await manager.testAgent('apprise', {
+      discordWebhookUrl: null,
+      customWebhookUrl: 'https://apprise.example.com/notify',
+      webhookFormat: 'apprise',
+      ntfyTopic: null,
+      ntfyAuthToken: null,
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
 
     expect(result.success).toBe(true);
 
     const callArgs = mockFetch.mock.calls[0]!;
     const body = JSON.parse(callArgs[1].body);
     expect(body.title).toBe('Test Notification');
-    expect(body.type).toBe('success');
+    expect(body.type).toBe('info');
   });
 
-  it('sends json test webhook', async () => {
+  it('sends json-webhook test', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true });
 
-    const result = await sendTestWebhook('https://example.com/webhook', 'custom', 'json');
+    const result = await manager.testAgent('json-webhook', {
+      discordWebhookUrl: null,
+      customWebhookUrl: 'https://example.com/webhook',
+      webhookFormat: 'json',
+      ntfyTopic: null,
+      ntfyAuthToken: null,
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
 
     expect(result.success).toBe(true);
 
     const callArgs = mockFetch.mock.calls[0]!;
     const body = JSON.parse(callArgs[1].body);
     expect(body.event).toBe('test');
-    expect(body.data.source).toBe('tracearr');
-    expect(body.data.test).toBe(true);
+    expect(body.data.message).toContain('test notification');
   });
 
   it('returns error when webhook fails', async () => {
@@ -474,25 +585,49 @@ describe('sendTestWebhook', () => {
       text: async () => 'Unauthorized',
     });
 
-    const result = await sendTestWebhook(
-      'https://ntfy.example.com',
-      'custom',
-      'ntfy',
-      'test',
-      'bad_token'
-    );
+    const result = await manager.testAgent('ntfy', {
+      discordWebhookUrl: null,
+      customWebhookUrl: 'https://ntfy.example.com',
+      webhookFormat: 'ntfy',
+      ntfyTopic: 'test',
+      ntfyAuthToken: 'bad_token',
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('401');
-    expect(result.error).toContain('Unauthorized');
   });
 
   it('returns error when fetch throws', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
-    const result = await sendTestWebhook('https://unreachable.example.com', 'custom', 'json');
+    const result = await manager.testAgent('json-webhook', {
+      discordWebhookUrl: null,
+      customWebhookUrl: 'https://unreachable.example.com',
+      webhookFormat: 'json',
+      ntfyTopic: null,
+      ntfyAuthToken: null,
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('Network error');
+  });
+
+  it('returns error for unknown agent', async () => {
+    const result = await manager.testAgent('unknown-agent', {
+      discordWebhookUrl: null,
+      customWebhookUrl: null,
+      webhookFormat: null,
+      ntfyTopic: null,
+      ntfyAuthToken: null,
+      pushoverUserKey: null,
+      pushoverApiToken: null,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('not found');
   });
 });

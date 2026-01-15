@@ -1,6 +1,8 @@
 /**
  * Core type definitions for Tracearr
  */
+import type { webhookFormatSchema } from './schemas.js';
+import { type z } from 'zod';
 
 // User role - combined permission level and account status
 // Can log in: owner, admin, viewer
@@ -67,6 +69,8 @@ export interface ServerUser {
   isServerAdmin: boolean;
   trustScore: number;
   sessionCount: number;
+  joinedAt: Date | null;
+  lastActivityAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -137,9 +141,121 @@ export interface AuthUser {
 
 // Session types
 export type SessionState = 'playing' | 'paused' | 'stopped';
-export type MediaType = 'movie' | 'episode' | 'track';
 
-export interface Session {
+/** Supported media types */
+export const MEDIA_TYPES = ['movie', 'episode', 'track', 'live', 'photo', 'unknown'] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+
+// ============================================================================
+// Stream Detail Types (JSONB column schemas)
+// ============================================================================
+
+/** Source video details from original media file */
+export interface SourceVideoDetails {
+  bitrate?: number;
+  framerate?: string;
+  dynamicRange?: string; // 'SDR' | 'HDR10' | 'HLG' | 'Dolby Vision'
+  aspectRatio?: number;
+  profile?: string;
+  level?: string;
+  colorSpace?: string;
+  colorDepth?: number;
+}
+
+/** Source audio details from original media file */
+export interface SourceAudioDetails {
+  bitrate?: number;
+  channelLayout?: string;
+  language?: string;
+  sampleRate?: number;
+}
+
+/** Stream video details after transcode */
+export interface StreamVideoDetails {
+  bitrate?: number;
+  width?: number;
+  height?: number;
+  framerate?: string;
+  dynamicRange?: string;
+}
+
+/** Stream audio details after transcode */
+export interface StreamAudioDetails {
+  bitrate?: number;
+  channels?: number;
+  language?: string;
+}
+
+/** Transcode processing information */
+export interface TranscodeInfo {
+  containerDecision?: string;
+  sourceContainer?: string;
+  streamContainer?: string;
+  hwRequested?: boolean;
+  hwDecoding?: string;
+  hwEncoding?: string;
+  speed?: number;
+  throttled?: boolean;
+  reasons?: string[];
+}
+
+/** Subtitle stream information */
+export interface SubtitleInfo {
+  decision?: string;
+  codec?: string;
+  language?: string;
+  forced?: boolean;
+}
+
+// ============================================================================
+// Stream Detail Fields (shared interface to eliminate duplication)
+// ============================================================================
+
+/**
+ * Common fields for stream metadata tracking.
+ * Used by Session, ProcessedSession, MediaSession.quality, and test fixtures.
+ * All fields are nullable for backwards compatibility with existing sessions.
+ */
+export interface StreamDetailFields {
+  // Source media details (original file)
+  sourceVideoCodec: string | null;
+  sourceAudioCodec: string | null;
+  sourceAudioChannels: number | null;
+  sourceVideoWidth: number | null;
+  sourceVideoHeight: number | null;
+  sourceVideoDetails: SourceVideoDetails | null;
+  sourceAudioDetails: SourceAudioDetails | null;
+  // Stream output details (delivered to client)
+  streamVideoCodec: string | null;
+  streamAudioCodec: string | null;
+  streamVideoDetails: StreamVideoDetails | null;
+  streamAudioDetails: StreamAudioDetails | null;
+  // Transcode and subtitle info
+  transcodeInfo: TranscodeInfo | null;
+  subtitleInfo: SubtitleInfo | null;
+}
+
+/**
+ * Default values for stream detail fields (all null).
+ * Use with spread operator for test fixtures and initial values.
+ */
+export const DEFAULT_STREAM_DETAILS: StreamDetailFields = {
+  sourceVideoCodec: null,
+  sourceAudioCodec: null,
+  sourceAudioChannels: null,
+  sourceVideoWidth: null,
+  sourceVideoHeight: null,
+  sourceVideoDetails: null,
+  sourceAudioDetails: null,
+  streamVideoCodec: null,
+  streamAudioCodec: null,
+  streamVideoDetails: null,
+  streamAudioDetails: null,
+  transcodeInfo: null,
+  subtitleInfo: null,
+};
+
+export interface Session extends StreamDetailFields {
   id: string;
   serverId: string;
   serverUserId: string;
@@ -183,6 +299,15 @@ export interface Session {
   videoDecision: string | null; // 'directplay' | 'copy' | 'transcode'
   audioDecision: string | null; // 'directplay' | 'copy' | 'transcode'
   bitrate: number | null;
+  // Live TV fields
+  channelTitle: string | null;
+  channelIdentifier: string | null;
+  channelThumb: string | null;
+  // Music track fields
+  artistName: string | null;
+  albumName: string | null;
+  trackNumber: number | null;
+  discNumber: number | null;
 }
 
 export interface ActiveSession extends Session {
@@ -467,7 +592,7 @@ export interface ServerResourceStats {
 }
 
 // Webhook format types
-export type WebhookFormat = 'json' | 'ntfy' | 'apprise';
+export type WebhookFormat = z.infer<typeof webhookFormatSchema>;
 
 // Unit system for display preferences (stored in settings)
 export type UnitSystem = 'metric' | 'imperial';
@@ -477,14 +602,19 @@ export interface Settings {
   allowGuestAccess: boolean;
   // Display preferences
   unitSystem: UnitSystem;
+  // Notifications settings
   discordWebhookUrl: string | null;
   customWebhookUrl: string | null;
   webhookFormat: WebhookFormat | null;
   ntfyTopic: string | null;
   ntfyAuthToken: string | null;
+  pushoverApiToken: string | null;
+  pushoverUserKey: string | null;
   // Poller settings
   pollerEnabled: boolean;
   pollerIntervalMs: number;
+  // GeoIP settings
+  usePlexGeoip: boolean;
   // Tautulli integration
   tautulliUrl: string | null;
   tautulliApiKey: string | null;
@@ -560,6 +690,7 @@ export interface JellystatImportProgress {
 export interface JellystatImportResult {
   success: boolean;
   imported: number;
+  updated: number;
   skipped: number;
   errors: number;
   enriched: number;
@@ -655,14 +786,10 @@ export interface HistoryAggregates {
 
 /**
  * Response shape for history/sessions queries with cursor-based pagination.
- * Supports infinite scroll patterns with aggregate stats.
+ * Aggregate stats are fetched separately via /sessions/history/aggregates.
  */
 export interface HistorySessionResponse {
   data: SessionWithDetails[];
-  /** Aggregate stats for the entire filtered result set */
-  aggregates: HistoryAggregates;
-  /** Total count of matching plays */
-  total: number;
   /** Cursor for fetching the next page (undefined if no more results) */
   nextCursor?: string;
   /** Whether more results exist beyond the current page */
@@ -1084,7 +1211,8 @@ export type MaintenanceJobType =
   | 'normalize_players'
   | 'normalize_countries'
   | 'fix_imported_progress'
-  | 'rebuild_timescale_views';
+  | 'rebuild_timescale_views'
+  | 'normalize_codecs';
 
 export type MaintenanceJobStatus = 'idle' | 'running' | 'complete' | 'error';
 
@@ -1268,4 +1396,161 @@ export interface VersionInfo {
   updateAvailable: boolean;
   // When the last check occurred (ISO timestamp)
   lastChecked: string | null;
+}
+
+// =============================================================================
+// Device Compatibility Types
+// =============================================================================
+
+// Device-codec compatibility row
+export interface DeviceCompatibilityRow {
+  deviceType: string;
+  videoCodec: string;
+  audioCodec: string;
+  sessionCount: number;
+  videoDirectCount: number;
+  audioDirectCount: number;
+  fullDirectCount: number;
+  anyTranscodeCount: number;
+  videoDirectPct: number;
+  audioDirectPct: number;
+  fullDirectPct: number;
+}
+
+// Device compatibility response with summary
+export interface DeviceCompatibilityResponse {
+  data: DeviceCompatibilityRow[];
+  summary: {
+    totalSessions: number;
+    directPlayPct: number;
+    uniqueDevices: number;
+    uniqueCodecs: number;
+  };
+}
+
+// Simplified matrix view for heatmap display
+export interface DeviceCompatibilityMatrix {
+  codecs: string[];
+  devices: {
+    device: string;
+    codecs: Record<string, { sessions: number; directPct: number }>;
+  }[];
+}
+
+// Device health ranking row
+export interface DeviceHealthRow {
+  device: string;
+  sessions: number;
+  directPlayCount: number;
+  transcodeCount: number;
+  directPlayPct: number;
+}
+
+// Device health response
+export interface DeviceHealthResponse {
+  data: DeviceHealthRow[];
+}
+
+// Transcode hotspot row
+export interface TranscodeHotspotRow {
+  device: string;
+  videoCodec: string;
+  audioCodec: string;
+  sessions: number;
+  directCount: number;
+  transcodeCount: number;
+  directPlayPct: number;
+  pctOfTotalTranscodes: number;
+}
+
+// Transcode hotspots response
+export interface TranscodeHotspotsResponse {
+  data: TranscodeHotspotRow[];
+  totalTranscodes: number;
+}
+
+// Top transcoding user row
+export interface TopTranscodingUserRow {
+  serverUserId: string;
+  username: string;
+  identityName: string | null;
+  avatar: string | null;
+  totalSessions: number;
+  directPlayCount: number;
+  transcodeCount: number;
+  directPlayPct: number;
+  pctOfTotalTranscodes: number;
+}
+
+// Top transcoding users response
+export interface TopTranscodingUsersResponse {
+  data: TopTranscodingUserRow[];
+  totalTranscodes: number;
+}
+
+// =============================================================================
+// Bandwidth Stats Types
+// =============================================================================
+
+// Daily bandwidth row
+export interface DailyBandwidthRow {
+  date: string;
+  sessions: number;
+  /** Total data transferred in bytes */
+  totalBytes: number;
+  /** Total data transferred in GB (human-readable) */
+  totalGb: number;
+  avgBitrate: number;
+  peakBitrate: number;
+  totalDurationMs: number;
+  avgBitrateMbps: number;
+  totalHours: number;
+}
+
+// Daily bandwidth response
+export interface DailyBandwidthResponse {
+  data: DailyBandwidthRow[];
+  usingAggregate: boolean;
+}
+
+// Top bandwidth user
+export interface BandwidthTopUser {
+  username: string;
+  /** Display name from linked identity (null if no linked user) */
+  identityName: string | null;
+  /** Avatar URL from server user */
+  thumbUrl: string | null;
+  serverUserId: string;
+  /** Total data transferred in bytes */
+  totalBytes: number;
+  /** Total data transferred in GB (human-readable) */
+  totalGb: number;
+  sessions: number;
+  avgBitrate: number;
+  totalDurationMs: number;
+  avgBitrateMbps: number;
+  totalHours: number;
+}
+
+// Top bandwidth users response
+export interface BandwidthTopUsersResponse {
+  data: BandwidthTopUser[];
+}
+
+// Bandwidth summary
+export interface BandwidthSummary {
+  totalSessions: number;
+  /** Total data transferred in bytes */
+  totalBytes: number;
+  /** Total data transferred in GB (human-readable) */
+  totalGb: number;
+  avgBitrate: number;
+  peakBitrate: number;
+  minBitrate: number;
+  medianBitrate: number;
+  totalDurationMs: number;
+  uniqueUsers: number;
+  avgBitrateMbps: number;
+  peakBitrateMbps: number;
+  totalHours: number;
 }

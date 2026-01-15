@@ -5,7 +5,69 @@
 import { z } from 'zod';
 import { isValidTimezone } from './constants.js';
 
-// Common schemas
+// ============================================================================
+// Shared Enum Constants
+// ============================================================================
+
+/** Server types supported by Tracearr */
+const SERVER_TYPES = ['plex', 'jellyfin', 'emby'] as const;
+export const serverTypeSchema = z.enum(SERVER_TYPES);
+export type ServerType = z.infer<typeof serverTypeSchema>;
+
+/** Media types for content filtering */
+const MEDIA_TYPES = ['movie', 'episode', 'track', 'live'] as const;
+export const mediaTypeSchema = z.enum(MEDIA_TYPES);
+export type MediaType = z.infer<typeof mediaTypeSchema>;
+
+/** Time periods for statistics queries */
+const STAT_PERIODS = ['day', 'week', 'month', 'year', 'all', 'custom'] as const;
+export const statPeriodSchema = z.enum(STAT_PERIODS);
+export type StatPeriod = z.infer<typeof statPeriodSchema>;
+
+// ============================================================================
+// Shared Date Validation Refinements
+// ============================================================================
+
+/**
+ * Refinement: Custom period requires both startDate and endDate
+ */
+function requireDatesForCustomPeriod(data: {
+  period?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  if (data.period === 'custom') {
+    return data.startDate && data.endDate;
+  }
+  return true;
+}
+
+/**
+ * Refinement: If dates provided, startDate must be before endDate
+ */
+function validateDateOrder(data: { startDate?: string; endDate?: string }) {
+  if (data.startDate && data.endDate) {
+    return new Date(data.startDate) < new Date(data.endDate);
+  }
+  return true;
+}
+
+/** Standard date validation refinements for stats queries */
+const dateValidationRefinements = {
+  customPeriodRequiresDates: {
+    refinement: requireDatesForCustomPeriod,
+    message: 'Custom period requires startDate and endDate',
+  },
+  startBeforeEnd: {
+    refinement: validateDateOrder,
+    message: 'startDate must be before endDate',
+  },
+};
+
+// ============================================================================
+// Common Schemas
+// ============================================================================
+
 export const uuidSchema = z.uuid();
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -17,22 +79,37 @@ export const booleanStringSchema = z
   .union([z.boolean(), z.string()])
   .transform((val) => (typeof val === 'boolean' ? val : val === 'true'));
 
-// Auth schemas
+// IANA timezone string validation (e.g., 'America/Los_Angeles', 'Europe/London')
+// Uses shared isValidTimezone helper which validates via Intl API
+export const timezoneSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .refine(isValidTimezone, { message: 'Invalid IANA timezone identifier' })
+  .optional();
+
+// ============================================================================
+// Auth Schemas
+// ============================================================================
+
 export const loginSchema = z.object({
-  serverType: z.enum(['plex', 'jellyfin', 'emby']),
+  serverType: serverTypeSchema,
   returnUrl: z.url().optional(),
 });
 
 export const callbackSchema = z.object({
   code: z.string().optional(),
   token: z.string().optional(),
-  serverType: z.enum(['plex', 'jellyfin', 'emby']),
+  serverType: serverTypeSchema,
 });
 
-// Server schemas
+// ============================================================================
+// Server Schemas
+// ============================================================================
+
 export const createServerSchema = z.object({
   name: z.string().min(1).max(100),
-  type: z.enum(['plex', 'jellyfin', 'emby']),
+  type: serverTypeSchema,
   url: z.url(),
   token: z.string().min(1),
 });
@@ -41,7 +118,10 @@ export const serverIdParamSchema = z.object({
   id: uuidSchema,
 });
 
-// User schemas
+// ============================================================================
+// User Schemas
+// ============================================================================
+
 export const updateUserSchema = z.object({
   allowGuest: z.boolean().optional(),
   trustScore: z.number().int().min(0).max(100).optional(),
@@ -57,12 +137,15 @@ export const userIdParamSchema = z.object({
   id: uuidSchema,
 });
 
-// Session schemas
+// ============================================================================
+// Session Schemas
+// ============================================================================
+
 export const sessionQuerySchema = paginationSchema.extend({
   serverUserId: uuidSchema.optional(),
   serverId: uuidSchema.optional(),
   state: z.enum(['playing', 'paused', 'stopped']).optional(),
-  mediaType: z.enum(['movie', 'episode', 'track', 'live']).optional(),
+  mediaType: mediaTypeSchema.optional(),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
 });
@@ -91,7 +174,7 @@ export const historyQuerySchema = z.object({
   state: z.enum(['playing', 'paused', 'stopped']).optional(),
 
   // Media type filter - supports multi-select
-  mediaTypes: commaSeparatedArray(z.enum(['movie', 'episode', 'track', 'live'])),
+  mediaTypes: commaSeparatedArray(mediaTypeSchema),
 
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
@@ -123,6 +206,15 @@ export const historyQuerySchema = z.object({
   orderDir: z.enum(['asc', 'desc']).default('desc'),
 });
 
+// Aggregates query - same filters as history but without sorting/pagination
+// Used for separate aggregates endpoint so sorting changes don't reload stats
+export const historyAggregatesQuerySchema = historyQuerySchema.omit({
+  cursor: true,
+  pageSize: true,
+  orderBy: true,
+  orderDir: true,
+});
+
 export const sessionIdParamSchema = z.object({
   id: uuidSchema,
 });
@@ -133,7 +225,10 @@ export const terminateSessionBodySchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-// Rule schemas
+// ============================================================================
+// Rule Schemas
+// ============================================================================
+
 export const impossibleTravelParamsSchema = z.object({
   maxSpeedKmh: z.number().positive().default(500),
   ignoreVpnRanges: z.boolean().optional(),
@@ -189,7 +284,13 @@ export const ruleIdParamSchema = z.object({
   id: uuidSchema,
 });
 
-// Violation schemas
+// ============================================================================
+// Violation Schemas
+// ============================================================================
+
+export const violationSortFieldSchema = z.enum(['createdAt', 'severity', 'user', 'rule']);
+export type ViolationSortField = z.infer<typeof violationSortFieldSchema>;
+
 export const violationQuerySchema = paginationSchema.extend({
   serverId: uuidSchema.optional(),
   serverUserId: uuidSchema.optional(),
@@ -198,25 +299,21 @@ export const violationQuerySchema = paginationSchema.extend({
   acknowledged: booleanStringSchema.optional(),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
+  orderBy: violationSortFieldSchema.optional(),
+  orderDir: z.enum(['asc', 'desc']).optional(),
 });
 
 export const violationIdParamSchema = z.object({
   id: uuidSchema,
 });
 
-// Stats schemas
+// ============================================================================
+// Stats Schemas
+// ============================================================================
+
 export const serverIdFilterSchema = z.object({
   serverId: uuidSchema.optional(),
 });
-
-// IANA timezone string validation (e.g., 'America/Los_Angeles', 'Europe/London')
-// Uses shared isValidTimezone helper which validates via Intl API
-export const timezoneSchema = z
-  .string()
-  .min(1)
-  .max(100)
-  .refine(isValidTimezone, { message: 'Invalid IANA timezone identifier' })
-  .optional();
 
 // Dashboard query schema with timezone support
 export const dashboardQuerySchema = z.object({
@@ -226,95 +323,117 @@ export const dashboardQuerySchema = z.object({
 
 export const statsQuerySchema = z
   .object({
-    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('week'),
+    period: statPeriodSchema.default('week'),
     startDate: z.iso.datetime().optional(),
     endDate: z.iso.datetime().optional(),
     serverId: uuidSchema.optional(),
     timezone: timezoneSchema,
   })
-  .refine(
-    (data) => {
-      // Custom period requires both dates
-      if (data.period === 'custom') {
-        return data.startDate && data.endDate;
-      }
-      return true;
-    },
-    { message: 'Custom period requires startDate and endDate' }
-  )
-  .refine(
-    (data) => {
-      // If dates provided, start must be before end
-      if (data.startDate && data.endDate) {
-        return new Date(data.startDate) < new Date(data.endDate);
-      }
-      return true;
-    },
-    { message: 'startDate must be before endDate' }
-  );
+  .refine(dateValidationRefinements.customPeriodRequiresDates.refinement, {
+    message: dateValidationRefinements.customPeriodRequiresDates.message,
+  })
+  .refine(dateValidationRefinements.startBeforeEnd.refinement, {
+    message: dateValidationRefinements.startBeforeEnd.message,
+  });
 
 // Location stats with full filtering - uses same period system as statsQuerySchema
 export const locationStatsQuerySchema = z
   .object({
-    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('month'),
+    period: statPeriodSchema.default('month'),
     startDate: z.iso.datetime().optional(),
     endDate: z.iso.datetime().optional(),
     serverUserId: uuidSchema.optional(),
     serverId: uuidSchema.optional(),
-    mediaType: z.enum(['movie', 'episode', 'track', 'live']).optional(),
+    mediaType: mediaTypeSchema.optional(),
   })
-  .refine(
-    (data) => {
-      if (data.period === 'custom') {
-        return data.startDate && data.endDate;
-      }
-      return true;
-    },
-    { message: 'Custom period requires startDate and endDate' }
-  )
-  .refine(
-    (data) => {
-      if (data.startDate && data.endDate) {
-        return new Date(data.startDate) < new Date(data.endDate);
-      }
-      return true;
-    },
-    { message: 'startDate must be before endDate' }
-  );
+  .refine(dateValidationRefinements.customPeriodRequiresDates.refinement, {
+    message: dateValidationRefinements.customPeriodRequiresDates.message,
+  })
+  .refine(dateValidationRefinements.startBeforeEnd.refinement, {
+    message: dateValidationRefinements.startBeforeEnd.message,
+  });
+
+// ============================================================================
+// Webhook & Settings Schemas
+// ============================================================================
 
 // Webhook format enum
-export const webhookFormatSchema = z.enum(['json', 'ntfy', 'apprise']);
+export const webhookFormatSchema = z.enum(['json', 'ntfy', 'apprise', 'pushover']);
 
 // Unit system enum for display preferences
 export const unitSystemSchema = z.enum(['metric', 'imperial']);
+
+const permissiveUrlSchema = z.string().refine(
+  (val) => {
+    // Must start with http:// or https://
+    if (!/^https?:\/\//i.test(val)) return false;
+    // Must have something after the protocol
+    const afterProtocol = val.replace(/^https?:\/\//i, '');
+    if (!afterProtocol || afterProtocol === '/') return false;
+    // Check hostname doesn't have whitespace
+    const hostPart = afterProtocol.split('/')[0];
+    if (!hostPart || /\s/.test(hostPart)) return false;
+    return true;
+  },
+  { message: 'Invalid URL. Must start with http:// or https:// followed by a hostname' }
+);
+
+// Nullable URL schema that converts empty strings to null (for clearing fields)
+// Auto-prepends http:// if a bare hostname is provided (no protocol)
+const nullableUrlSchema = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return null;
+  const str = String(val).trim();
+  if (!str) return null;
+  // Auto-prepend http:// if no protocol specified (for convenience)
+  if (str && !/^https?:\/\//i.test(str)) {
+    return `http://${str}`;
+  }
+  return str;
+}, permissiveUrlSchema.nullable());
+
+// Nullable string schema that converts empty strings to null (for clearing fields)
+const nullableStringSchema = (maxLength?: number) =>
+  z.preprocess(
+    (val) => (val === '' ? null : val),
+    maxLength ? z.string().max(maxLength).nullable() : z.string().nullable()
+  );
 
 // Settings schemas
 export const updateSettingsSchema = z.object({
   allowGuestAccess: z.boolean().optional(),
   // Display preferences
   unitSystem: unitSystemSchema.optional(),
-  discordWebhookUrl: z.url().nullable().optional(),
-  customWebhookUrl: z.url().nullable().optional(),
+  discordWebhookUrl: nullableUrlSchema.optional(),
+  customWebhookUrl: nullableUrlSchema.optional(),
   webhookFormat: webhookFormatSchema.nullable().optional(),
   ntfyTopic: z.string().max(200).nullable().optional(),
-  ntfyAuthToken: z.string().max(500).nullable().optional(),
+  ntfyAuthToken: nullableStringSchema(500).optional(),
+  pushoverUserKey: nullableStringSchema(200).optional(),
+  pushoverApiToken: nullableStringSchema(200).optional(),
   // Poller settings
   pollerEnabled: z.boolean().optional(),
   pollerIntervalMs: z.number().int().min(5000).max(300000).optional(),
+  // GeoIP settings
+  usePlexGeoip: z.boolean().optional(),
   // Tautulli integration
-  tautulliUrl: z.url().nullable().optional(),
-  tautulliApiKey: z.string().nullable().optional(),
+  tautulliUrl: nullableUrlSchema.optional(),
+  tautulliApiKey: nullableStringSchema().optional(),
   // Network/access settings
-  externalUrl: z.url().nullable().optional(),
+  externalUrl: nullableUrlSchema.optional(),
   basePath: z.string().max(100).optional(),
   trustProxy: z.boolean().optional(),
   // Authentication settings
   primaryAuthMethod: z.enum(['jellyfin', 'local']).optional(),
 });
 
-// Tautulli import schemas
+// ============================================================================
+// Tautulli Import Schemas
+// ============================================================================
+
 export const tautulliImportSchema = z.object({
   serverId: uuidSchema, // Which Tracearr server to import into
+  overwriteFriendlyNames: z.boolean().optional(), // Whether to overwrite existing identity names
+  includeStreamDetails: z.boolean().optional(), // (BETA) Fetch detailed codec/bitrate info via additional API calls
 });
 
 // ============================================================================
@@ -381,10 +500,11 @@ export const jellystatPlaybackActivitySchema = z.looseObject({
 /**
  * Jellystat backup file structure
  * The backup is an array with a single object containing table data
+ * Individual activity records are validated separately during import to skip bad records
  */
 export const jellystatBackupSchema = z.array(
   z.object({
-    jf_playback_activity: z.array(jellystatPlaybackActivitySchema).optional(),
+    jf_playback_activity: z.array(z.unknown()).optional(), // Validate records individually during import
   })
 );
 
@@ -394,6 +514,7 @@ export const jellystatBackupSchema = z.array(
 export const jellystatImportBodySchema = z.object({
   serverId: uuidSchema, // Which Tracearr server to import into
   enrichMedia: z.coerce.boolean().default(true), // Fetch season/episode from Jellyfin API
+  updateStreamDetails: z.coerce.boolean().default(false), // Update existing records with stream/transcode data
 });
 
 /**
@@ -414,13 +535,82 @@ export const importJobStatusSchema = z.object({
   failedReason: z.string().optional(),
 });
 
-// Type exports from schemas
+// ============================================================================
+// Engagement Stats Schemas
+// ============================================================================
+
+// Engagement tier enum for validation
+export const engagementTierSchema = z.enum([
+  'abandoned',
+  'sampled',
+  'engaged',
+  'completed',
+  'finished',
+  'rewatched',
+  'unknown',
+]);
+export type EngagementTier = z.infer<typeof engagementTierSchema>;
+
+// User behavior type enum for validation
+export const userBehaviorTypeSchema = z.enum([
+  'inactive',
+  'sampler',
+  'casual',
+  'completionist',
+  'rewatcher',
+]);
+export type UserBehaviorType = z.infer<typeof userBehaviorTypeSchema>;
+
+// Engagement stats query schema - extends base stats query
+export const engagementQuerySchema = z
+  .object({
+    period: statPeriodSchema.default('week'),
+    startDate: z.iso.datetime().optional(),
+    endDate: z.iso.datetime().optional(),
+    serverId: uuidSchema.optional(),
+    timezone: timezoneSchema,
+    // Engagement-specific filters
+    mediaType: mediaTypeSchema.optional(),
+    limit: z.coerce.number().int().positive().max(100).default(10),
+  })
+  .refine(dateValidationRefinements.customPeriodRequiresDates.refinement, {
+    message: dateValidationRefinements.customPeriodRequiresDates.message,
+  })
+  .refine(dateValidationRefinements.startBeforeEnd.refinement, {
+    message: dateValidationRefinements.startBeforeEnd.message,
+  });
+
+// Show stats query schema
+export const showsQuerySchema = z
+  .object({
+    period: statPeriodSchema.default('month'),
+    startDate: z.iso.datetime().optional(),
+    endDate: z.iso.datetime().optional(),
+    serverId: uuidSchema.optional(),
+    timezone: timezoneSchema,
+    limit: z.coerce.number().int().positive().max(100).default(20),
+    orderBy: z
+      .enum(['totalEpisodeViews', 'totalWatchHours', 'bingeScore', 'uniqueViewers'])
+      .default('totalEpisodeViews'),
+  })
+  .refine(dateValidationRefinements.customPeriodRequiresDates.refinement, {
+    message: dateValidationRefinements.customPeriodRequiresDates.message,
+  })
+  .refine(dateValidationRefinements.startBeforeEnd.refinement, {
+    message: dateValidationRefinements.startBeforeEnd.message,
+  });
+
+// ============================================================================
+// Type Exports
+// ============================================================================
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CallbackInput = z.infer<typeof callbackSchema>;
 export type CreateServerInput = z.infer<typeof createServerSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type SessionQueryInput = z.infer<typeof sessionQuerySchema>;
 export type HistoryQueryInput = z.infer<typeof historyQuerySchema>;
+export type HistoryAggregatesQueryInput = z.infer<typeof historyAggregatesQuerySchema>;
 export type CreateRuleInput = z.infer<typeof createRuleSchema>;
 export type UpdateRuleInput = z.infer<typeof updateRuleSchema>;
 export type ViolationQueryInput = z.infer<typeof violationQuerySchema>;
@@ -438,93 +628,6 @@ export type JellystatPlaybackActivity = z.infer<typeof jellystatPlaybackActivity
 export type JellystatBackup = z.infer<typeof jellystatBackupSchema>;
 export type JellystatImportBody = z.infer<typeof jellystatImportBodySchema>;
 export type ImportJobStatus = z.infer<typeof importJobStatusSchema>;
-
-// ============================================================================
-// Engagement Stats Schemas
-// ============================================================================
-
-// Engagement tier enum for validation
-export const engagementTierSchema = z.enum([
-  'abandoned',
-  'sampled',
-  'engaged',
-  'completed',
-  'finished',
-  'rewatched',
-  'unknown',
-]);
-
-// User behavior type enum for validation
-export const userBehaviorTypeSchema = z.enum([
-  'inactive',
-  'sampler',
-  'casual',
-  'completionist',
-  'rewatcher',
-]);
-
-// Engagement stats query schema - extends base stats query
-export const engagementQuerySchema = z
-  .object({
-    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('week'),
-    startDate: z.iso.datetime().optional(),
-    endDate: z.iso.datetime().optional(),
-    serverId: uuidSchema.optional(),
-    timezone: timezoneSchema,
-    // Engagement-specific filters
-    mediaType: z.enum(['movie', 'episode', 'track', 'live']).optional(),
-    limit: z.coerce.number().int().positive().max(100).default(10),
-  })
-  .refine(
-    (data) => {
-      if (data.period === 'custom') {
-        return data.startDate && data.endDate;
-      }
-      return true;
-    },
-    { message: 'Custom period requires startDate and endDate' }
-  )
-  .refine(
-    (data) => {
-      if (data.startDate && data.endDate) {
-        return new Date(data.startDate) < new Date(data.endDate);
-      }
-      return true;
-    },
-    { message: 'startDate must be before endDate' }
-  );
-
-// Show stats query schema
-export const showsQuerySchema = z
-  .object({
-    period: z.enum(['day', 'week', 'month', 'year', 'all', 'custom']).default('month'),
-    startDate: z.iso.datetime().optional(),
-    endDate: z.iso.datetime().optional(),
-    serverId: uuidSchema.optional(),
-    timezone: timezoneSchema,
-    limit: z.coerce.number().int().positive().max(100).default(20),
-    orderBy: z
-      .enum(['totalEpisodeViews', 'totalWatchHours', 'bingeScore', 'uniqueViewers'])
-      .default('totalEpisodeViews'),
-  })
-  .refine(
-    (data) => {
-      if (data.period === 'custom') {
-        return data.startDate && data.endDate;
-      }
-      return true;
-    },
-    { message: 'Custom period requires startDate and endDate' }
-  )
-  .refine(
-    (data) => {
-      if (data.startDate && data.endDate) {
-        return new Date(data.startDate) < new Date(data.endDate);
-      }
-      return true;
-    },
-    { message: 'startDate must be before endDate' }
-  );
 
 // Engagement types
 export type EngagementQueryInput = z.infer<typeof engagementQuerySchema>;
